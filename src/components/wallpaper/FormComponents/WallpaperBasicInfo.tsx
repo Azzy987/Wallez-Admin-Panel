@@ -635,38 +635,26 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
       });
       console.log('Upload parameters:', { dir, filename: file.name, contentType: file.type });
       console.log('Calling s3-presign-upload with:', { dir, filename: file.name, contentType: file.type });
-      
-      const { data, error } = await supabase.functions.invoke('s3-presign-upload', {
-        body: {
+
+      const apiRes = await fetch('/api/s3-presign-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           dir,
           filename: file.name,
           contentType: file.type || 'application/octet-stream',
-        },
+        }),
       });
-      
-      console.log('=== SUPABASE FUNCTION RESPONSE ===');
-      console.log('Raw data:', data);
-      console.log('Raw error:', error);
-      
-      if (error) {
-        console.error('❌ Supabase function error details:', {
-          message: error.message,
-          details: error.details,
-          hint: error.hint,
-          code: error.code
-        });
-        
-        // Show user-friendly error
-        toast.error(`Upload failed: ${error.message || 'Supabase function error'}`);
-        throw new Error(`Supabase function failed: ${error.message || 'Unknown error'}`);
+
+      if (!apiRes.ok) {
+        const errData = await apiRes.json().catch(() => ({}));
+        const msg = errData.error || `HTTP ${apiRes.status}`;
+        toast.error(`Upload failed: ${msg}`);
+        throw new Error(`s3-presign-upload failed: ${msg}`);
       }
-      
-      if (!data) {
-        console.error('❌ No data returned from Supabase function');
-        toast.error('No response from upload service');
-        throw new Error('No response from upload service');
-      }
-      const response = data as { uploadUrl?: string; publicUrl: string; thumbnailTemplate: string; fileExists?: boolean; message?: string };
+
+      const response = await apiRes.json() as { uploadUrl?: string; publicUrl: string; thumbnailTemplate: string; fileExists?: boolean; message?: string };
+      console.log('=== API RESPONSE ===', response);
       
       // Check if file already exists
       console.log('=== SUPABASE RESPONSE DEBUG ===');
@@ -986,9 +974,12 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
                   console.log('Testing with:', { dir, filename: testFilename });
                   
                   try {
-                    const { data, error } = await supabase.functions.invoke('s3-presign-upload', {
-                      body: { dir, filename: testFilename, contentType: 'image/jpeg' }
+                    const res = await fetch('/api/s3-presign-upload', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ dir, filename: testFilename, contentType: 'image/jpeg' }),
                     });
+                    const data = await res.json();
                     console.log('Test response:', data);
                     console.log('File exists:', data.fileExists);
                   } catch (e) {

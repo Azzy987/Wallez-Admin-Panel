@@ -251,16 +251,20 @@ const UploadWallpaper: React.FC = () => {
       });
 
       // 1) Get a presigned URL
-      const { data, error } = await supabase.functions.invoke('s3-presign-upload', {
-        body: {
+      const apiRes = await fetch('/api/s3-presign-upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           dir,
           filename: file.name,
           contentType: file.type || 'application/octet-stream',
-        },
+        }),
       });
-      
-      if (error) throw error;
-      const response = data as { uploadUrl?: string; publicUrl: string; thumbnailTemplate: string; fileExists?: boolean; message?: string };
+      if (!apiRes.ok) {
+        const errData = await apiRes.json().catch(() => ({}));
+        throw new Error(errData.error || `HTTP ${apiRes.status}`);
+      }
+      const response = await apiRes.json() as { uploadUrl?: string; publicUrl: string; thumbnailTemplate: string; fileExists?: boolean; message?: string };
       
       // Check if file already exists
       if (response.fileExists) {
