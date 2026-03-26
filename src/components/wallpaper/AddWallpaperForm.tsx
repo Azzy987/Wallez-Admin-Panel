@@ -976,60 +976,55 @@ const AddWallpaperForm: React.FC = () => {
         }
       }
       
-      // Check for duplicates in smaller batches to avoid memory issues
-      const DUPLICATE_CHECK_BATCH_SIZE = 10;
+      // Check for duplicates — skip duplicates instead of stopping entirely
+      const DUPLICATE_CHECK_BATCH_SIZE = 20;
+      const formsToProcess: WallpaperForm[] = [];
+      let skippedCount = 0;
+
       for (let i = 0; i < wallpaperForms.length; i += DUPLICATE_CHECK_BATCH_SIZE) {
         const batch = wallpaperForms.slice(i, i + DUPLICATE_CHECK_BATCH_SIZE);
-        
         const duplicateChecks = await Promise.allSettled(
           batch.map(form => checkDuplicateWallpaper(form.imageUrl))
         );
-        
         for (let j = 0; j < duplicateChecks.length; j++) {
           const result = duplicateChecks[j];
           if (result.status === 'fulfilled' && result.value) {
-            const form = batch[j];
-            toast.error(`Wallpaper "${form.wallpaperName}" already exists`);
-            setLoading(false);
-            setShowProgressOverlay(false);
-            return;
-          } else if (result.status === 'rejected') {
-            console.error('Error checking duplicate:', result.reason);
-            toast.warning('Could not verify all duplicates, proceeding with upload');
+            skippedCount++;
+          } else {
+            formsToProcess.push(batch[j]);
           }
         }
-        
-        // Small delay between duplicate check batches
-        if (i + DUPLICATE_CHECK_BATCH_SIZE < wallpaperForms.length) {
+      }
+
+      if (skippedCount > 0) {
+        toast.info(`Skipped ${skippedCount} duplicate(s), uploading ${formsToProcess.length} new wallpaper(s)`);
+      }
+
+      if (formsToProcess.length === 0) {
+        toast.warning('All wallpapers already exist — nothing to upload');
+        setLoading(false);
+        setShowProgressOverlay(false);
+        return;
+      }
+
+      // Process in larger batches for better performance
+      const BATCH_SIZE = formsToProcess.length > 80 ? 8 : formsToProcess.length > 30 ? 12 : 20;
+      const batches = [];
+
+      for (let i = 0; i < formsToProcess.length; i += BATCH_SIZE) {
+        batches.push(formsToProcess.slice(i, i + BATCH_SIZE));
+      }
+
+      // Process each batch sequentially
+      for (let i = 0; i < batches.length; i++) {
+        await processBatch(batches[i], i, batches.length);
+        if (i < batches.length - 1) {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
       
-      // Ultra-aggressive batching to prevent Firebase rate limits and memory issues
-      const BATCH_SIZE = wallpaperForms.length > 80 ? 3 : wallpaperForms.length > 50 ? 4 : wallpaperForms.length > 30 ? 5 : 10;
-      const batches = [];
-      
-      for (let i = 0; i < wallpaperForms.length; i += BATCH_SIZE) {
-        batches.push(wallpaperForms.slice(i, i + BATCH_SIZE));
-      }
-      
-      console.log(`Processing ${wallpaperForms.length} wallpapers in ${batches.length} batches of size ${BATCH_SIZE}`);
-      
-      // Process each batch sequentially
-      for (let i = 0; i < batches.length; i++) {
-        console.log(`Processing batch ${i + 1} of ${batches.length}`);
-        await processBatch(batches[i], i, batches.length);
-        
-        // Progressive delays for large uploads to prevent Firebase rate limits
-        if (i < batches.length - 1) {
-          const delay = wallpaperForms.length > 80 ? 1000 : wallpaperForms.length > 50 ? 800 : wallpaperForms.length > 30 ? 500 : 200;
-          console.log(`⏳ Waiting ${delay}ms before next Firebase batch...`);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
-      
       setUploadProgress(100);
-      toast.success(`Successfully added ${wallpaperForms.length} wallpaper(s) to Firebase!`);
+      toast.success(`Successfully added ${formsToProcess.length} wallpaper(s) to Firebase!`);
       
       // Clear all form state
       setWallpaperForms([{ ...initialFormState }]);
@@ -1063,26 +1058,15 @@ const AddWallpaperForm: React.FC = () => {
   };
   
   const getSelectedMainCategory = (form: WallpaperForm) => {
-    console.log('getSelectedMainCategory called with:', { 
-      selectedCategories: form.selectedCategories, 
-      categories: categories 
-    });
-    
-    const result = form.selectedCategories.find(cat => 
+    return form.selectedCategories.find(cat =>
       categories.find(c => c.categoryName === cat && c.categoryType === 'main')
     ) || '';
-    
-    console.log('getSelectedMainCategory result:', result);
-    return result;
   };
-  
+
   const getSelectedBrandCategory = (form: WallpaperForm) => {
-    const result = form.selectedCategories.find(cat => 
+    return form.selectedCategories.find(cat =>
       categories.find(c => c.categoryName === cat && c.categoryType === 'brand')
     ) || '';
-    
-    console.log('getSelectedBrandCategory result:', result);
-    return result;
   };
   
   return (
@@ -1162,23 +1146,9 @@ const AddWallpaperForm: React.FC = () => {
           onClearUploads={index === 0 ? setClearUploadsFunction : undefined}
           onThumbnailLoad={() => setThumbnailsLoaded(prev => prev + 1)}
           onThumbnailError={() => setThumbnailsFailed(prev => prev + 1)}
-          selectedCategory={(() => {
-            const brandCategory = getSelectedBrandCategory(form);
-            const mainCategory = getSelectedMainCategory(form);
-            const fallbackCategory = form.selectedCategories[0] || '';
-            const result = brandCategory || mainCategory || fallbackCategory;
-            
-            console.log('=== CATEGORY SELECTION DEBUG ===');
-            console.log('Brand Category:', brandCategory);
-            console.log('Main Category:', mainCategory);
-            console.log('Fallback Category:', fallbackCategory);
-            console.log('Final Selected Category:', result);
-            console.log('Form series:', form.series);
-            console.log('Form subCategory:', form.subCategory);
-            console.log('=== END CATEGORY SELECTION DEBUG ===');
-            
-            return result;
-          })()}
+          selectedCategory={
+            getSelectedBrandCategory(form) || getSelectedMainCategory(form) || form.selectedCategories[0] || ''
+          }
           selectedSubcategory={
             // For Samsung, Apple, OnePlus, and Xiaomi (brand categories), use the selected device series for S3 path
             (getSelectedBrandCategory(form) === 'Samsung' || getSelectedBrandCategory(form) === 'Apple' || getSelectedBrandCategory(form) === 'OnePlus' || getSelectedBrandCategory(form) === 'Xiaomi') && form.series
@@ -1227,11 +1197,11 @@ const AddWallpaperForm: React.FC = () => {
       />
       
       {showProgressOverlay && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
-          <div className="bg-background p-6 rounded-lg shadow-lg max-w-md w-full">
+        <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">
+          <div className="bg-background p-6 rounded-lg shadow-lg w-full max-w-md">
             <div className="text-center space-y-4">
               <Loader className="h-10 w-10 text-primary animate-spin mx-auto" />
-              <h3 className="text-xl font-medium">Uploading Wallpapers</h3>
+              <h3 className="text-xl font-medium">Saving to Firebase</h3>
               <Progress value={uploadProgress} className="h-2 w-full" />
               <p className="text-muted-foreground">{uploadProgress}% Complete</p>
             </div>

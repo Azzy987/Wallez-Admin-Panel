@@ -557,15 +557,6 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
     
     const dir = getUploadDirectory();
     
-    // Debug logging
-    console.log('=== UPLOAD DEBUG START ===');
-    console.log('Starting upload for file:', file.name);
-    console.log('Selected category (raw):', `"${selectedCategory}"`);
-    console.log('Selected subcategory (raw):', `"${selectedSubcategory}"`);
-    console.log('Generated upload directory:', `"${dir}"`);
-    console.log('Will send to S3 presign function with dir:', dir);
-    console.log('=== UPLOAD DEBUG END ===');
-    
     try {
       // Update progress to show starting
       setUploadProgress(prev => {
@@ -579,16 +570,6 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
       });
 
       // 1) Get a presigned URL
-      console.log('=== UPLOAD DEBUG START ===');
-      console.log('File details:', {
-        name: file.name,
-        size: file.size,
-        type: file.type,
-        lastModified: new Date(file.lastModified).toISOString()
-      });
-      console.log('Upload parameters:', { dir, filename: file.name, contentType: file.type });
-      console.log('Calling s3-presign-upload with:', { dir, filename: file.name, contentType: file.type });
-
       const apiRes = await fetch('/api/s3-presign-upload', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -607,19 +588,8 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
       }
 
       const response = await apiRes.json() as { uploadUrl?: string; publicUrl: string; thumbnailTemplate: string; fileExists?: boolean; message?: string };
-      console.log('=== API RESPONSE ===', response);
-      
-      // Check if file already exists
-      console.log('=== SUPABASE RESPONSE DEBUG ===');
-      console.log('Full response:', response);
-      console.log('Response keys:', Object.keys(response));
-      console.log('File exists check:', response.fileExists);
-      console.log('File exists type:', typeof response.fileExists);
-      console.log('Response message:', response.message);
-      
+
       if (response.fileExists === true) {
-        console.log(`✅ File ${file.name} already exists, skipping upload`);
-        console.log(`✅ Existing URL: ${response.publicUrl}`);
         
         setUploadProgress(prev => {
           const newProgress = [...prev];
@@ -631,12 +601,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
           return newProgress;
         });
         setCompletedUploads(prev => prev + 1);
-        
-        // Note: Wallpaper name is now auto-filled when forms are created
-        console.log(`✅ File ${file.name} already exists, skipping upload`);
-        
-        // Show toast message about skipping duplicate
-        toast.info(`🔄 File "${file.name}" already exists, skipping upload`);
+        toast.info(`Skipped "${file.name}" — already exists`);
         
         return response.publicUrl; // Return existing URL
       }
@@ -746,10 +711,6 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
 
   const handleUpload = async () => {
     if (files.length === 0) return toast.error('Please select at least one file');
-    
-    if (!selectedCategory) {
-      return toast.error('Please select a category in the form below first');
-    }
     
     setUploading(true);
     setUploadProgress(files.map(file => ({
@@ -872,9 +833,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
 
   const overallProgress = files.length > 0 ? Math.round((completedUploads / files.length) * 100) : 0;
   
-  // More robust check for category selection - allow upload if any category exists
-  const hasValidCategory = selectedCategory && selectedCategory.trim() !== '';
-  const canUpload = files.length > 0 && hasValidCategory && !uploading;
+  const canUpload = files.length > 0 && !uploading;
   
 
   return (
@@ -888,167 +847,35 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
         </div>
         
         {/* Category Info Display */}
-        {selectedCategory ? (
-          <div className="mb-4 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-md">
-            <div className="text-sm text-blue-800 dark:text-blue-200">
-              <span className="font-medium">Category:</span> {selectedCategory}
-              {selectedSubcategory && (
-                <span className="ml-2">
-                  <span className="font-medium">Subcategory:</span> {selectedSubcategory}
-                </span>
-              )}
-            </div>
-            <div className="text-xs text-blue-600 dark:text-blue-300 mt-1">
-              S3 Path: {getUploadDirectory()}
-            </div>
-            <div className="mt-2 space-y-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  console.log('Debug - Current props:', { selectedCategory, selectedSubcategory });
-                  console.log('Debug - Generated path:', getUploadDirectory());
-                  console.log('Debug - Raw category value:', selectedCategory);
-                  console.log('Debug - Category type:', typeof selectedCategory);
-                }}
-                className="text-xs"
-              >
-                Debug Info
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={async () => {
-                  console.log('=== MANUAL S3 CHECK ===');
-                  const dir = getUploadDirectory();
-                  const testFilename = 'test-duplicate-check.jpg';
-                  console.log('Testing with:', { dir, filename: testFilename });
-                  
-                  try {
-                    const res = await fetch('/api/s3-presign-upload', {
-                      method: 'POST',
-                      headers: { 'Content-Type': 'application/json' },
-                      body: JSON.stringify({ dir, filename: testFilename, contentType: 'image/jpeg' }),
-                    });
-                    const data = await res.json();
-                    console.log('Test response:', data);
-                    console.log('File exists:', data.fileExists);
-                  } catch (e) {
-                    console.error('Test error:', e);
-                  }
-                }}
-                className="text-xs ml-2"
-              >
-                Test S3 Check
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  console.log('=== NAME EXTRACTION TEST ===');
-                  const testFiles = [
-                    'Samsung_Galaxy_A15_5g_2_Ytechb.jpg',
-                    'samsung-galaxy-s25-ultra-wallpaper-4k.jpg',
-                    'iPhone_14_Pro_Max_wallpaper_hd.jpg',
-                    'google-pixel-8-pro-2024.jpg',
-                    'galaxy-z-flip-4-amoled-dark.jpg',
-                    'dreamy-landscape-4k-wv-2160x3840.jpg'
-                  ];
-                  
-                  console.log('📁 Testing device name extraction:');
-                  testFiles.forEach(filename => {
-                    const extracted = extractWallpaperName(filename);
-                    console.log(`"${filename}" → "${extracted}"`);
-                  });
-                  
-                  toast.success('Check console for name extraction test results!');
-                }}
-                className="text-xs ml-2"
-              >
-                Test Name Extract
-              </Button>
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                onClick={() => {
-                  console.log('=== BANNER URL TEST ===');
-                  const testUrls = [
-                    'https://d1wqpnbk3wcub7.cloudfront.net/fit-in/360x640/wallpapers/samsung/galaxy-s25-ultra/wallpaper1.jpg',
-                    'https://d1wqpnbk3wcub7.cloudfront.net/wallpapers/amoled-dark/deer.jpg',
-                    'https://d1wqpnbk3wcub7.cloudfront.net/fit-in/1200x600/wallpapers/nature/mountain.jpg'
-                  ];
-                  
-                  const getBannerUrl = (url: string): string => {
-                    console.log('🖼️ [TEST] Creating banner URL from:', url);
-                    
-                    // Check if URL already contains CloudFront banner transformation
-                    if (url.includes('d1wqpnbk3wcub7.cloudfront.net') && url.includes('/fit-in/1200x600/')) {
-                      console.log('🖼️ [TEST] URL already has banner transformation');
-                      return url;
-                    }
-                    
-                    // If it's a CloudFront URL but doesn't have banner transformation, add it
-                    if (url.includes('d1wqpnbk3wcub7.cloudfront.net')) {
-                      const baseUrl = 'https://d1wqpnbk3wcub7.cloudfront.net';
-                      const imagePath = url.substring(url.indexOf('cloudfront.net/') + 15)
-                        .replace(/^\/?(fit-in\/\d+x\d+\/)?/, ''); // Remove any existing transformations
-                      const bannerUrl = `${baseUrl}/fit-in/1200x600/${imagePath}`;
-                      console.log('🖼️ [TEST] Generated banner URL:', bannerUrl);
-                      return bannerUrl;
-                    }
-                    
-                    return url;
-                  };
-                  
-                  console.log('🖼️ Testing banner URL generation:');
-                  testUrls.forEach(url => {
-                    const bannerUrl = getBannerUrl(url);
-                    console.log(`"${url}" → "${bannerUrl}"`);
-                  });
-                  
-                  toast.success('Check console for banner URL test results!');
-                }}
-                className="text-xs ml-2"
-              >
-                Test Banner URLs
-              </Button>
-              <div className="text-xs text-red-600">
-                <strong>Test Upload:</strong> This path will be used for S3 upload
-              </div>
-            </div>
+        <div className="mb-4 p-3 bg-blue-100 dark:bg-blue-900/30 rounded-md">
+          <div className="text-sm text-blue-800 dark:text-blue-200">
+            <span className="font-medium">S3 Path:</span> {getUploadDirectory()}
+            {selectedCategory && (
+              <span className="ml-2 text-xs text-blue-600 dark:text-blue-300">
+                ({selectedCategory}{selectedSubcategory ? ` / ${selectedSubcategory}` : ''})
+              </span>
+            )}
           </div>
-        ) : (
-          <div className="mb-4 p-3 bg-yellow-100 dark:bg-yellow-900/30 rounded-md">
-            <div className="text-sm text-yellow-800 dark:text-yellow-200">
-              <span className="font-medium">⚠️ No category selected</span>
-              <div className="text-xs text-yellow-600 dark:text-yellow-300 mt-1">
-                Please select a category in the form below to enable S3 upload
-              </div>
+          {!selectedCategory && (
+            <div className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+              Select a category below to change the upload path
             </div>
-          </div>
-        )}
+          )}
+        </div>
         
         {/* Drag & Drop File Selection */}
         <div className="space-y-3">
           <Label className="text-sm font-medium">Select Images</Label>
           <DragDropZone
             onFilesSelected={(newFiles) => {
-              // Check for duplicate files in the current selection
-              const uniqueFiles = newFiles.filter((newFile) => 
-                !files.some(existingFile => 
+              const uniqueFiles = newFiles.filter((newFile) =>
+                !files.some(existingFile =>
                   existingFile.name === newFile.name && existingFile.size === newFile.size
                 )
               );
-              
               if (uniqueFiles.length < newFiles.length) {
-                const duplicateCount = newFiles.length - uniqueFiles.length;
-                toast.warning(`⚠️ ${duplicateCount} duplicate file(s) removed from selection`);
+                toast.warning(`${newFiles.length - uniqueFiles.length} duplicate(s) removed`);
               }
-              
               if (uniqueFiles.length > 0) {
                 setFiles(prev => [...prev, ...uniqueFiles]);
                 setUploadProgress([]);
@@ -1058,9 +885,9 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
             accept="image/*"
             multiple={true}
             maxFiles={100}
-            maxSizeBytes={15 * 1024 * 1024} // 15MB per file
+            maxSizeBytes={15 * 1024 * 1024}
             disabled={uploading}
-            className="min-h-[200px]"
+            className="min-h-[120px] sm:min-h-[180px]"
           />
           
           {/* Additional File Controls */}
@@ -1087,9 +914,8 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
           <Button
             type="button"
             onClick={handleUpload}
-            disabled={!canUpload || uploading}
+            disabled={!canUpload}
             className="w-full bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
-            title={!hasValidCategory ? 'Please select a category first' : !files.length ? 'Please select files first' : ''}
           >
             {uploading ? (
               <>
@@ -1104,12 +930,6 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
             )}
           </Button>
           
-          {/* Helper text when button is disabled */}
-          {!canUpload && files.length > 0 && !uploading && (
-            <p className="text-sm text-orange-600 dark:text-orange-400 mt-1 text-center">
-              ⚠️ Please select a category in the form below to enable S3 upload
-            </p>
-          )}
           
           {/* Progress Display */}
           {uploadProgress.length > 0 && (
@@ -1120,7 +940,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
               </div>
               <Progress value={overallProgress} className="w-full" />
               
-              <div className="space-y-2 max-h-32 overflow-y-auto">
+              <div className="space-y-2 max-h-48 overflow-y-auto">
                 {uploadProgress.map((progress, progressIndex) => (
                   <div key={progressIndex} className="space-y-1">
                     <div className="flex items-center justify-between text-xs">
@@ -1156,14 +976,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
         
         {/* Help Text */}
         <div className="text-xs text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/30 p-3 rounded-md">
-          <p className="font-medium mb-1">💡 How it works:</p>
-          <ol className="list-decimal list-inside space-y-1">
-            <li>First select category and subcategory in the form below</li>
-            <li>Choose one or more images to upload</li>
-            <li>Click "Upload to S3" to upload images to your bucket</li>
-            <li>After upload, multiple wallpaper forms will be created automatically</li>
-            <li>Each form will have its own image URL, name, and source fields</li>
-          </ol>
+          Select images → Upload to S3 → Fill category &amp; details → Submit
         </div>
       </div>
       )}
@@ -1181,10 +994,10 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
         </div>
       )}
       
-      {/* Existing Form Fields */}
-      <div className="flex gap-4">
+      {/* Form Fields */}
+      <div className="flex flex-col sm:flex-row gap-4">
         {imageUrl && (
-          <div className="relative w-32 h-32 bg-gray-100 rounded-lg overflow-hidden border border-gray-200">
+          <div className="relative w-full sm:w-32 h-48 sm:h-32 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 flex-shrink-0">
             <ProgressiveImage 
               src={imageUrl} 
               alt={wallpaperName || "Wallpaper preview"}
@@ -1251,123 +1064,15 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
               }}
             />
             
-            {/* Comprehensive URL Testing */}
-            <div className="absolute bottom-1 right-1 flex flex-col gap-1">
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="sm"
-                  className="h-6 w-6 p-0 text-xs"
-                  onClick={async () => {
-                    try {
-                      console.log('🔍 Testing CloudFront URL:', imageUrl);
-                      
-                      // Test fetch first
-                      const response = await fetch(imageUrl, { method: 'HEAD' });
-                      console.log('CloudFront HEAD response:', {
-                        status: response.status,
-                        statusText: response.statusText,
-                        headers: Object.fromEntries(response.headers.entries())
-                      });
-                      
-                      if (response.ok) {
-                        window.open(imageUrl, '_blank');
-                        toast.success(`✅ CloudFront URL works (${response.status})`);
-                      } else {
-                        toast.error(`❌ CloudFront failed: ${response.status} ${response.statusText}`);
-                      }
-                    } catch (error) {
-                      console.error('CloudFront test error:', error);
-                      toast.error(`❌ CloudFront error: ${error.message}`);
-                    }
-                  }}
-                  title="Test CloudFront URL"
-                >
-                  🔗
-                </Button>
-                
-                {imageUrl.includes('d1wqpnbk3wcub7.cloudfront.net') && (
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    className="h-6 w-6 p-0 text-xs"
-                    onClick={async () => {
-                      try {
-                        const s3Url = imageUrl.replace(
-                          'https://d1wqpnbk3wcub7.cloudfront.net/',
-                          'https://wallpaperassets.s3.us-east-1.amazonaws.com/'
-                        );
-                        console.log('🔍 Testing S3 direct URL:', s3Url);
-                        
-                        // Test fetch first
-                        const response = await fetch(s3Url, { method: 'HEAD' });
-                        console.log('S3 HEAD response:', {
-                          status: response.status,
-                          statusText: response.statusText,
-                          headers: Object.fromEntries(response.headers.entries())
-                        });
-                        
-                        if (response.ok) {
-                          window.open(s3Url, '_blank');
-                          toast.success(`✅ S3 direct URL works (${response.status})`);
-                        } else {
-                          toast.error(`❌ S3 failed: ${response.status} ${response.statusText}`);
-                        }
-                      } catch (error) {
-                        console.error('S3 test error:', error);
-                        toast.error(`❌ S3 error: ${error.message}`);
-                      }
-                    }}
-                    title="Test direct S3 URL"
-                  >
-                    S3
-                  </Button>
-                )}
-              </div>
-              
-              <Button
-                type="button"
-                variant="destructive"
-                size="sm"
-                className="h-5 w-12 p-0 text-xs"
-                onClick={async () => {
-                  try {
-                    console.log('🔍 COMPREHENSIVE URL DEBUG:', imageUrl);
-                    
-                    const urls = [
-                      { name: 'CloudFront Original', url: imageUrl },
-                      { name: 'CloudFront Thumbnail', url: imageUrl.replace('d1wqpnbk3wcub7.cloudfront.net/', 'd1wqpnbk3wcub7.cloudfront.net/fit-in/300x300/') },
-                      { name: 'S3 Direct', url: imageUrl.replace('https://d1wqpnbk3wcub7.cloudfront.net/', 'https://wallpaperassets.s3.us-east-1.amazonaws.com/') }
-                    ];
-                    
-                    for (const { name, url } of urls) {
-                      try {
-                        const response = await fetch(url, { method: 'HEAD' });
-                        console.log(`${name}: ${response.status} ${response.statusText}`);
-                        
-                        if (response.ok) {
-                          toast.success(`✅ ${name}: Working`);
-                          break; // Use first working URL
-                        } else {
-                          toast.error(`❌ ${name}: ${response.status}`);
-                        }
-                      } catch (err) {
-                        console.error(`${name} error:`, err);
-                        toast.error(`❌ ${name}: ${err.message}`);
-                      }
-                    }
-                  } catch (error) {
-                    console.error('Debug test error:', error);
-                    toast.error('Debug test failed');
-                  }
-                }}
-                title="Debug all URLs"
-              >
-                DEBUG
-              </Button>
-            </div>
+            {/* Open image in new tab */}
+            <button
+              type="button"
+              className="absolute bottom-1 right-1 h-6 w-6 bg-black/40 hover:bg-black/60 rounded text-white text-xs flex items-center justify-center"
+              onClick={() => window.open(imageUrl, '_blank')}
+              title="Open image"
+            >
+              ↗
+            </button>
           </div>
         )}
         <div className="flex-1 space-y-4">
@@ -1574,7 +1279,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
             )}
           </div>
           
-          <div className="flex items-center space-x-6 pt-2">
+          <div className="flex flex-wrap items-center gap-4 pt-2">
             <div className="flex items-center space-x-2">
               <Checkbox
                 id={`exclusive-${index}`}
