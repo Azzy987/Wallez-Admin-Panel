@@ -7,8 +7,6 @@ import { Label } from '@/components/ui/label';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { ImagePlus, Upload, Check, X, FolderOpen, Trash2, CheckCircle, SkipForward } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
-import { FunctionsHttpError } from '@supabase/supabase-js';
 import { toast } from 'sonner';
 import { useIsMobile } from '@/hooks/use-mobile';
 

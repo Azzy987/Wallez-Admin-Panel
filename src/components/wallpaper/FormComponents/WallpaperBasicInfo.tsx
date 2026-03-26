@@ -7,7 +7,6 @@ import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
 import { Upload, Cloud, CheckCircle, SkipForward, X, Loader2, Sparkles } from 'lucide-react';
-import { supabase } from '@/integrations/supabase/client';
 import { toast } from 'sonner';
 import { DragDropZone } from '@/components/ui/drag-drop-zone';
 import BannerAppSelector from '@/components/BannerAppSelector';
@@ -244,8 +243,8 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
 
   // Helper functions
 
-  // AI-powered image name generation
-  const generateAiName = async () => {
+  // Image name generation from filename pattern matching (runs locally, no server needed)
+  const generateAiName = () => {
     if (!imageUrl) {
       toast.error('Please provide an image URL first');
       return;
@@ -253,58 +252,12 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
 
     setGeneratingAiName(true);
     try {
-      // Check if image URL is accessible
-      const testResponse = await fetch(imageUrl, { method: 'HEAD' });
-      if (!testResponse.ok) {
-        throw new Error('Image URL is not accessible');
-      }
-
-      toast.loading('🤖 Analyzing image with AI...', { id: 'ai-generation' });
-
-      console.log('🤖 Starting AI analysis for:', imageUrl);
-
-      // Call the Supabase AI image analysis function
-      const { data, error } = await supabase.functions.invoke('ai-image-analysis', {
-        body: {
-          imageUrl: imageUrl,
-          analysisType: 'wallpaper'
-        }
-      });
-
-      toast.dismiss('ai-generation');
-
-      if (error) {
-        console.error('AI analysis function error:', error);
-        throw new Error(error.message || 'AI analysis service error');
-      }
-
-      if (!data || !data.suggestedName) {
-        throw new Error('No analysis result received');
-      }
-
-      console.log('🤖 AI Analysis Result:', data);
-
-      const { suggestedName, confidence, reasoning } = data;
-      
+      const suggestedName = extractWallpaperName(imageUrl);
       onChange('wallpaperName', suggestedName);
-      
-      // Show different messages based on confidence level
-      if (confidence > 0.8) {
-        toast.success(`🤖 AI generated: "${suggestedName}" (High confidence)`, { duration: 4000 });
-      } else if (confidence > 0.6) {
-        toast.success(`🤖 AI suggested: "${suggestedName}" (Medium confidence)`, { duration: 4000 });
-      } else {
-        toast.success(`🤖 AI fallback: "${suggestedName}" (${reasoning})`, { duration: 4000 });
-      }
-      
+      toast.success(`Generated: "${suggestedName}"`, { duration: 4000 });
     } catch (error) {
-      console.error('AI name generation error:', error);
-      toast.dismiss('ai-generation');
-      
-      // Fallback to URL extraction if AI fails completely
-      const fallbackName = extractWallpaperName(imageUrl);
-      onChange('wallpaperName', fallbackName);
-      toast.warning(`🤖 AI analysis failed, used URL extraction: "${fallbackName}"`, { duration: 5000 });
+      console.error('Name generation error:', error);
+      toast.error('Could not generate name');
     } finally {
       setGeneratingAiName(false);
     }
