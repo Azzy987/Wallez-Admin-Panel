@@ -7,6 +7,10 @@ const corsHeaders = {
   'Access-Control-Allow-Methods': 'POST, OPTIONS',
 };
 
+function setCors(res: VercelResponse) {
+  Object.entries(corsHeaders).forEach(([key, value]) => res.setHeader(key, value));
+}
+
 function sha256(message: string): string {
   return createHash('sha256').update(message).digest('hex');
 }
@@ -123,13 +127,14 @@ function checkFileExists(
 }
 
 export default async function handler(req: VercelRequest, res: VercelResponse) {
-  // Handle CORS preflight
+  setCors(res);
+
   if (req.method === 'OPTIONS') {
-    return res.status(200).set(corsHeaders).end();
+    return res.status(200).end();
   }
 
   if (req.method !== 'POST') {
-    return res.status(405).set(corsHeaders).json({ error: 'Method not allowed' });
+    return res.status(405).json({ error: 'Method not allowed' });
   }
 
   try {
@@ -142,12 +147,12 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const cloudfront = process.env.CLOUDFRONT_DOMAIN;
     const pattern = process.env.IMAGE_TRANSFORM_PATTERN || '/fit-in/{w}x{h}/';
 
-    if (!accessKeyId) return res.status(500).set(corsHeaders).json({ error: 'AWS_ACCESS_KEY_ID is missing' });
-    if (!secretAccessKey) return res.status(500).set(corsHeaders).json({ error: 'AWS_SECRET_ACCESS_KEY is missing' });
-    if (!region) return res.status(500).set(corsHeaders).json({ error: 'AWS_S3_REGION is missing' });
-    if (!bucket) return res.status(500).set(corsHeaders).json({ error: 'AWS_S3_BUCKET is missing' });
-    if (!cloudfront) return res.status(500).set(corsHeaders).json({ error: 'CLOUDFRONT_DOMAIN is missing' });
-    if (!filename) return res.status(500).set(corsHeaders).json({ error: 'filename is missing' });
+    if (!accessKeyId) return res.status(500).json({ error: 'AWS_ACCESS_KEY_ID is missing' });
+    if (!secretAccessKey) return res.status(500).json({ error: 'AWS_SECRET_ACCESS_KEY is missing' });
+    if (!region) return res.status(500).json({ error: 'AWS_S3_REGION is missing' });
+    if (!bucket) return res.status(500).json({ error: 'AWS_S3_BUCKET is missing' });
+    if (!cloudfront) return res.status(500).json({ error: 'CLOUDFRONT_DOMAIN is missing' });
+    if (!filename) return res.status(500).json({ error: 'filename is missing' });
 
     const cleanDir = String(dir).replace(/^\/+|\/+$/g, '');
     const cleanFilename = filename
@@ -168,7 +173,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
     const fileExists = await checkFileExists(accessKeyId, secretAccessKey, region, bucket, key);
 
     if (fileExists) {
-      return res.status(200).set(corsHeaders).json({
+      return res.status(200).json({
         fileExists: true,
         key,
         publicUrl: `https://${cloudfront}/${key}`,
@@ -179,7 +184,7 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
 
     const uploadUrl = createPresignedUrl(accessKeyId, secretAccessKey, region, bucket, key, contentType, 300);
 
-    return res.status(200).set(corsHeaders).json({
+    return res.status(200).json({
       uploadUrl,
       key,
       publicUrl: `https://${cloudfront}/${key}`,
@@ -189,6 +194,6 @@ export default async function handler(req: VercelRequest, res: VercelResponse) {
   } catch (e) {
     const err = e as Error;
     console.error('s3-presign-upload error:', err);
-    return res.status(500).set(corsHeaders).json({ error: 'Unexpected error', message: err.message });
+    return res.status(500).json({ error: 'Unexpected error', message: err.message });
   }
 }

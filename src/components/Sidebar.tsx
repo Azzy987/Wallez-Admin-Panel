@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BarChart3, Image, Smartphone, Edit, Sun, Moon, Menu, X, RefreshCw } from 'lucide-react';
+import { BarChart3, Image, Smartphone, Edit, Sun, Moon, Menu, X, RefreshCw, Layers } from 'lucide-react';
 import { useTheme } from '@/hooks/use-theme';
 import { Button } from '@/components/ui/button';
 import { useIsMobile } from '@/hooks/use-mobile';
@@ -39,8 +39,7 @@ const Sidebar: React.FC = () => {
       <nav className="mt-4 flex-1">
         <Link 
           to="/" 
-          className={`sidebar-item ${isActive('/')} animate-fade-in hover:translate-x-1 transition-all duration-200`}
-          style={{ animationDelay: '200ms' }}
+          className={`sidebar-item ${isActive('/')}`}
         >
           <BarChart3 className="h-5 w-5" />
           <span>Analytics</span>
@@ -48,8 +47,7 @@ const Sidebar: React.FC = () => {
         
         <Link 
           to="/add-wallpaper" 
-          className={`sidebar-item ${isActive('/add-wallpaper')} animate-fade-in hover:translate-x-1 transition-all duration-200`}
-          style={{ animationDelay: '300ms' }}
+          className={`sidebar-item ${isActive('/add-wallpaper')}`}
         >
           <Image className="h-5 w-5" />
           <span>Add Wallpaper</span>
@@ -57,8 +55,7 @@ const Sidebar: React.FC = () => {
         
         <Link 
           to="/edit-wallpaper" 
-          className={`sidebar-item ${isActive('/edit-wallpaper')} animate-fade-in hover:translate-x-1 transition-all duration-200`}
-          style={{ animationDelay: '400ms' }}
+          className={`sidebar-item ${isActive('/edit-wallpaper')}`}
         >
           <Edit className="h-5 w-5" />
           <span>Edit Wallpaper</span>
@@ -66,8 +63,7 @@ const Sidebar: React.FC = () => {
         
         <Link 
           to="/bulk-thumbnail-edit" 
-          className={`sidebar-item ${isActive('/bulk-thumbnail-edit')} animate-fade-in hover:translate-x-1 transition-all duration-200`}
-          style={{ animationDelay: '450ms' }}
+          className={`sidebar-item ${isActive('/bulk-thumbnail-edit')}`}
         >
           <RefreshCw className="h-5 w-5" />
           <span>Bulk Thumbnail Edit</span>
@@ -75,11 +71,18 @@ const Sidebar: React.FC = () => {
         
         <Link 
           to="/add-devices" 
-          className={`sidebar-item ${isActive('/add-devices')} animate-fade-in hover:translate-x-1 transition-all duration-200`}
-          style={{ animationDelay: '500ms' }}
+          className={`sidebar-item ${isActive('/add-devices')}`}
         >
           <Smartphone className="h-5 w-5" />
           <span>Add Devices</span>
+        </Link>
+
+        <Link
+          to="/banner-management"
+          className={`sidebar-item ${isActive('/banner-management')}`}
+        >
+          <Layers className="h-5 w-5" />
+          <span>Banner Management</span>
         </Link>
       </nav>
       
