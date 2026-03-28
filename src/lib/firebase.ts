@@ -1682,4 +1682,106 @@ export const updateWallpaperInCollection = async (collectionName: string, id: st
   return updateWallpaper(collectionName, id, data);
 };
 
+// ─── App Promos ───────────────────────────────────────────────────────────────
+
+export interface AppPromo {
+  id: string;
+  appName: string;
+  appUrl: string;
+  imageUrl: string;
+  createdAt?: any;
+}
+
+/** Save a new app promo: AppPromos/{appName} */
+export const addAppPromo = async (data: {
+  appName: string;
+  appUrl: string;
+  imageUrl: string;
+}): Promise<string> => {
+  try {
+    const ref = doc(collection(db, 'AppPromos'));
+    await setDoc(ref, {
+      appName: data.appName,
+      appUrl: data.appUrl,
+      imageUrl: data.imageUrl,
+      createdAt: serverTimestamp(),
+    });
+    console.log('App promo created:', ref.id);
+    return ref.id;
+  } catch (error) {
+    console.error('Error adding app promo:', error);
+    throw error;
+  }
+};
+
+/** Fetch all app promos from AppPromos collection */
+export const getAppPromos = async (): Promise<AppPromo[]> => {
+  try {
+    const snapshot = await getDocs(collection(db, 'AppPromos'));
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() } as AppPromo));
+  } catch (error) {
+    console.error('Error getting app promos:', error);
+    throw error;
+  }
+};
+
+/** Delete an app promo document */
+export const deleteAppPromo = async (id: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, 'AppPromos', id));
+    console.log('App promo deleted:', id);
+  } catch (error) {
+    console.error('Error deleting app promo:', error);
+    throw error;
+  }
+};
+
+/** Fetch all banner docs inside Banners/{brandApp}/{subcollection} */
+export const getBannersByBrandAndSubcollection = async (
+  brandApp: string,
+  subcollection: string
+): Promise<Array<{ id: string; [key: string]: any }>> => {
+  try {
+    const ref = collection(doc(db, 'Banners', brandApp), subcollection);
+    const snapshot = await getDocs(ref);
+    return snapshot.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (error) {
+    console.error('Error getting banners:', error);
+    throw error;
+  }
+};
+
+/** Attach an app promo into Banners/{brandApp}/{subcollection}/{id} */
+export const attachAppPromoToBanner = async (
+  brandApp: string,
+  subcollection: string,
+  promoId: string,
+  bannerData: { bannerName: string; bannerUrl: string; imageUrl: string; bannerType: string }
+): Promise<void> => {
+  try {
+    const ref = doc(collection(doc(db, 'Banners', brandApp), subcollection), promoId);
+    await setDoc(ref, { ...bannerData, timestamp: serverTimestamp() });
+    await updateBrandAppSubcollections(brandApp, subcollection);
+    console.log(`Attached promo ${promoId} to Banners/${brandApp}/${subcollection}`);
+  } catch (error) {
+    console.error('Error attaching app promo to banner:', error);
+    throw error;
+  }
+};
+
+/** Delete a single document from Banners/{brandApp}/{subcollection}/{id} */
+export const deleteBannerDoc = async (
+  brandApp: string,
+  subcollection: string,
+  docId: string
+): Promise<void> => {
+  try {
+    await deleteDoc(doc(collection(doc(db, 'Banners', brandApp), subcollection), docId));
+    console.log(`Deleted Banners/${brandApp}/${subcollection}/${docId}`);
+  } catch (error) {
+    console.error('Error deleting banner doc:', error);
+    throw error;
+  }
+};
+
 export { app, db, storage };
