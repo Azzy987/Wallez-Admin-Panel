@@ -298,4 +298,6 @@ const BannerAppSelector: React.FC<BannerAppSelectorProps> = ({
   );
 };
 
+export { AVAILABLE_BRAND_APPS as AVAILABLE_APPS };
+
 export default BannerAppSelector;
