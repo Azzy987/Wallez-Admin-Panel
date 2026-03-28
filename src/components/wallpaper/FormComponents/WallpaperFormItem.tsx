@@ -19,6 +19,9 @@ interface WallpaperForm {
   selectedBrandApp: string;
   customBrandApp: string;
   subcollectionName: string;
+  bannerType?: 'wallpaper' | 'app_promo';
+  appPromoName?: string;
+  appPromoUrl?: string;
   depthEffect?: boolean;
   selectedCategories: string[];
   selectedDeviceSeries: string[];
@@ -137,6 +140,9 @@ const WallpaperFormItem: React.FC<WallpaperFormItemProps> = ({
             selectedBrandApp={form.selectedBrandApp}
             customBrandApp={form.customBrandApp}
             subcollectionName={form.subcollectionName}
+            bannerType={form.bannerType}
+            appPromoName={form.appPromoName}
+            appPromoUrl={form.appPromoUrl}
             depthEffect={form.depthEffect || hasDepthEffectCategory}
             sameAsCategory={form.sameAsCategory}
             sameSource={form.sameSource}

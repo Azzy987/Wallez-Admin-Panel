@@ -8,9 +8,15 @@ interface BannerAppSelectorProps {
   selectedBrandApp: string;
   customBrandApp: string;
   subcollectionName: string;
+  bannerType?: 'wallpaper' | 'app_promo';
+  appPromoName?: string;
+  appPromoUrl?: string;
   onBrandAppChange: (brandApp: string) => void;
   onCustomBrandAppChange: (customApp: string) => void;
   onSubcollectionNameChange: (name: string) => void;
+  onBannerTypeChange?: (type: 'wallpaper' | 'app_promo') => void;
+  onAppPromoNameChange?: (name: string) => void;
+  onAppPromoUrlChange?: (url: string) => void;
   className?: string;
 }
 
@@ -28,9 +34,15 @@ const BannerAppSelector: React.FC<BannerAppSelectorProps> = ({
   selectedBrandApp,
   customBrandApp,
   subcollectionName,
+  bannerType = 'wallpaper',
+  appPromoName = '',
+  appPromoUrl = '',
   onBrandAppChange,
   onCustomBrandAppChange,
   onSubcollectionNameChange,
+  onBannerTypeChange,
+  onAppPromoNameChange,
+  onAppPromoUrlChange,
   className = ""
 }) => {
   const [showSuggestions, setShowSuggestions] = useState(false);
@@ -72,6 +84,70 @@ const BannerAppSelector: React.FC<BannerAppSelectorProps> = ({
           Configure which brand app and subcollection will contain this banner
         </p>
       </div>
+
+      {/* Banner Type */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">Banner Type</Label>
+        <div className="flex gap-4">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`bannerType-${selectedBrandApp}`}
+              value="wallpaper"
+              checked={bannerType === 'wallpaper'}
+              onChange={() => onBannerTypeChange?.('wallpaper')}
+              className="accent-blue-600"
+            />
+            <span className="text-sm">Wallpaper</span>
+          </label>
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input
+              type="radio"
+              name={`bannerType-${selectedBrandApp}`}
+              value="app_promo"
+              checked={bannerType === 'app_promo'}
+              onChange={() => onBannerTypeChange?.('app_promo')}
+              className="accent-blue-600"
+            />
+            <span className="text-sm">App Promo</span>
+          </label>
+        </div>
+        {bannerType === 'app_promo' && (
+          <p className="text-xs text-blue-600 dark:text-blue-400">
+            Image will be stored in <code className="bg-blue-50 dark:bg-blue-900/30 px-1 rounded">app-promos/</code> folder on S3
+          </p>
+        )}
+      </div>
+
+      {/* App Promo fields — only shown for app_promo type */}
+      {bannerType === 'app_promo' && (
+        <div className="space-y-3 p-3 bg-orange-50 dark:bg-orange-950/20 rounded-lg border border-orange-200 dark:border-orange-800">
+          <p className="text-xs text-orange-700 dark:text-orange-300 font-medium">
+            App promo banner — no wallpaper image needed
+          </p>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">App Name</Label>
+            <Input
+              value={appPromoName}
+              onChange={(e) => onAppPromoNameChange?.(e.target.value)}
+              placeholder="e.g. Samsung Wallpapers"
+              className="w-full"
+            />
+          </div>
+          <div className="space-y-2">
+            <Label className="text-sm font-medium">App URL</Label>
+            <Input
+              value={appPromoUrl}
+              onChange={(e) => onAppPromoUrlChange?.(e.target.value)}
+              placeholder="https://play.google.com/store/apps/..."
+              className="w-full"
+            />
+            <p className="text-xs text-muted-foreground">
+              Stored as <code className="bg-muted px-1 rounded">bannerUrl</code> — users are taken here when they tap the banner
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Brand App Selection */}
       <div className="space-y-2">
@@ -211,12 +287,9 @@ const BannerAppSelector: React.FC<BannerAppSelectorProps> = ({
       {selectedBrandApp && subcollectionName && (
         <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
           <p className="text-sm text-blue-800 dark:text-blue-200">
-            <span className="font-medium">Banner will be created in:</span><br/>
+            <span className="font-medium">Will save to:</span>{' '}
             <code className="text-xs bg-blue-100 dark:bg-blue-800 px-1 py-0.5 rounded">
-              Banners/
-              {selectedBrandApp === 'custom' ? (customBrandApp || 'CustomApp') : selectedBrandApp}/
-              {subcollectionName}/
-              [banner-document]
+              Banners/{selectedBrandApp === 'custom' ? (customBrandApp || 'CustomApp') : selectedBrandApp}/{subcollectionName}/[id]
             </code>
           </p>
         </div>

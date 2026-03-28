@@ -168,6 +168,9 @@ interface WallpaperBasicInfoProps {
   selectedBrandApp: string;
   customBrandApp: string;
   subcollectionName: string;
+  bannerType?: 'wallpaper' | 'app_promo';
+  appPromoName?: string;
+  appPromoUrl?: string;
   sameAsCategory?: boolean;
   sameSource?: boolean;
   sameWallpaperName?: boolean;
@@ -197,6 +200,9 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
   selectedBrandApp,
   customBrandApp,
   subcollectionName,
+  bannerType = 'wallpaper',
+  appPromoName = '',
+  appPromoUrl = '',
   sameAsCategory = false,
   sameSource = false,
   sameWallpaperName = false,
@@ -1304,14 +1310,20 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
             
             {/* Banner App Configuration - only show when addAsBanner is true */}
             {addAsBanner && (
-              <div className="mt-4">
+              <div className="w-full mt-2">
                 <BannerAppSelector
                   selectedBrandApp={selectedBrandApp}
                   customBrandApp={customBrandApp}
                   subcollectionName={subcollectionName}
+                  bannerType={bannerType}
+                  appPromoName={appPromoName}
+                  appPromoUrl={appPromoUrl}
                   onBrandAppChange={(brandApp) => onChange('selectedBrandApp', brandApp)}
                   onCustomBrandAppChange={(customApp) => onChange('customBrandApp', customApp)}
                   onSubcollectionNameChange={(name) => onChange('subcollectionName', name)}
+                  onBannerTypeChange={(type) => onChange('bannerType', type)}
+                  onAppPromoNameChange={(name) => onChange('appPromoName', name)}
+                  onAppPromoUrlChange={(url) => onChange('appPromoUrl', url)}
                 />
               </div>
             )}

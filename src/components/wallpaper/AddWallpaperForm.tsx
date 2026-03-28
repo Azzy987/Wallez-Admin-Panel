@@ -34,6 +34,9 @@ interface WallpaperForm {
   selectedBrandApp: string;
   customBrandApp: string;
   subcollectionName: string;
+  bannerType: 'wallpaper' | 'app_promo';
+  appPromoName: string;
+  appPromoUrl: string;
   depthEffect: boolean;
   selectedCategories: string[];
   selectedDeviceSeries: string[];
@@ -60,6 +63,9 @@ const initialFormState: WallpaperForm = {
   selectedBrandApp: '',
   customBrandApp: '',
   subcollectionName: '',
+  bannerType: 'wallpaper',
+  appPromoName: '',
+  appPromoUrl: '',
   depthEffect: false,
   selectedCategories: [],
   selectedDeviceSeries: [],
@@ -325,6 +331,9 @@ const AddWallpaperForm: React.FC = () => {
         selectedBrandApp: wallpaperForms[0]?.selectedBrandApp || '',
         customBrandApp: wallpaperForms[0]?.customBrandApp || '',
         subcollectionName: wallpaperForms[0]?.subcollectionName || '',
+        bannerType: wallpaperForms[0]?.bannerType || 'wallpaper',
+        appPromoName: wallpaperForms[0]?.appPromoName || '',
+        appPromoUrl: wallpaperForms[0]?.appPromoUrl || '',
         selectedIosVersion: wallpaperForms[0]?.selectedIosVersion || '',
         launchYear: wallpaperForms[0]?.launchYear || ''
       };
@@ -904,41 +913,27 @@ const AddWallpaperForm: React.FC = () => {
         
         // Handle banner creation with custom structure
         if (form.addAsBanner && form.selectedBrandApp && form.subcollectionName && createdWallpaperIds.length > 0) {
-          const getBannerUrl = (url: string): string => {
-            console.log('🖼️ [BANNER] Using original imageUrl as bannerUrl:', url);
-            // Return the original imageUrl as-is without any CloudFront transformations
-            return url;
-          };
-
-          const bannerUrl = getBannerUrl(form.imageUrl);
-          const bannerData = {
-            bannerName: form.wallpaperName,
-            bannerUrl: bannerUrl
-          };
-
-          // Determine the brand app name (use custom if selected, otherwise use predefined)
           const brandApp = form.selectedBrandApp === 'custom' ? form.customBrandApp : form.selectedBrandApp;
 
-          // Validate that brandApp is not empty
           if (!brandApp || brandApp.trim() === '') {
-            console.error('🖼️ [BANNER] Error: Brand app name is required for banner creation');
             toast.error('Please provide a brand app name for banner creation');
-            continue; // Skip this wallpaper
+            continue;
           }
 
-          console.log('🖼️ [BANNER] Creating custom banner - Brand App:', brandApp, 'Subcollection:', form.subcollectionName);
-          console.log('🖼️ [BANNER] Banner data:', bannerData);
-          console.log('🖼️ [BANNER] Created wallpaper IDs:', createdWallpaperIds);
+          const isAppPromo = form.bannerType === 'app_promo';
+          const bannerData = {
+            bannerName: isAppPromo ? (form.appPromoName || form.wallpaperName) : form.wallpaperName,
+            bannerUrl: isAppPromo ? form.appPromoUrl : form.imageUrl,
+            bannerType: form.bannerType || 'wallpaper',
+          };
 
-          // Create banner for each created wallpaper ID using custom structure
           for (const wallpaperId of createdWallpaperIds) {
-            const bannerResult = await addBannerWithCustomStructure(
+            await addBannerWithCustomStructure(
               brandApp,
               form.subcollectionName,
               wallpaperId,
               bannerData
             );
-            console.log(`🖼️ [BANNER] Custom banner created for wallpaper ${wallpaperId}:`, bannerResult);
           }
         }
         
