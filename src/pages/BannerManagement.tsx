@@ -21,25 +21,17 @@ import { AVAILABLE_BRAND_APPS } from '@/components/BannerAppSelector';
 import { toast } from 'sonner';
 import { Layers, Trash2, Loader2, Plus, Link2, ImageIcon, RefreshCw } from 'lucide-react';
 
-// ─── Upload helper ────────────────────────────────────────────────────────────
+
 async function uploadImageToS3(file: File): Promise<string> {
   const res = await fetch('/api/s3-presign-upload', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      dir: 'app-promos',
-      filename: file.name,
-      contentType: file.type,
-    }),
+    body: JSON.stringify({ dir: 'app-promos', filename: file.name, contentType: file.type }),
   });
   if (!res.ok) throw new Error('Failed to get presigned URL');
   const { uploadUrl, publicUrl, fileExists } = await res.json();
   if (fileExists) return publicUrl;
-  const put = await fetch(uploadUrl, {
-    method: 'PUT',
-    headers: { 'Content-Type': file.type },
-    body: file,
-  });
+  const put = await fetch(uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
   if (!put.ok) throw new Error('S3 upload failed');
   return publicUrl;
 }
@@ -79,7 +71,7 @@ const AppPromosTab: React.FC = () => {
   const handleAdd = async () => {
     if (!appName.trim()) { toast.error('App name is required'); return; }
     if (!appUrl.trim()) { toast.error('App URL is required'); return; }
-    if (!imageFile) { toast.error('Please select an image'); return; }
+    if (!imageFile) { toast.error('Please select a background image'); return; }
     setSaving(true);
     try {
       const imageUrl = await uploadImageToS3(imageFile);
@@ -135,7 +127,7 @@ const AppPromosTab: React.FC = () => {
           </div>
 
           <div className="space-y-1">
-            <Label>Promo Image</Label>
+            <Label>Background Image</Label>
             <div
               className="border-2 border-dashed rounded-lg p-4 text-center cursor-pointer hover:border-primary transition-colors"
               onClick={() => fileRef.current?.click()}
@@ -180,9 +172,6 @@ const AppPromosTab: React.FC = () => {
           {promos.map(promo => (
             <Card key={promo.id}>
               <CardContent className="pt-4 space-y-3">
-                {promo.imageUrl && (
-                  <img src={promo.imageUrl} alt={promo.appName} className="w-full h-32 object-cover rounded" />
-                )}
                 <div>
                   <p className="font-medium">{promo.appName}</p>
                   <p className="text-xs text-muted-foreground truncate">{promo.appUrl}</p>
@@ -266,8 +255,8 @@ const AttachToAppTab: React.FC = () => {
     try {
       await attachAppPromoToBanner(brandApp, subcollection, promo.id, {
         bannerName: promo.appName,
-        bannerUrl: promo.appUrl,
-        imageUrl: promo.imageUrl,
+        bannerUrl: promo.imageUrl,
+        appUrl: promo.appUrl,
         bannerType: 'app_promo',
       });
       toast.success(`"${promo.appName}" attached to ${brandApp} / ${subcollection}`);

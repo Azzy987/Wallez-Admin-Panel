@@ -1689,7 +1689,6 @@ export interface AppPromo {
   appName: string;
   appUrl: string;
   imageUrl: string;
-  createdAt?: any;
 }
 
 /** Save a new app promo: AppPromos/{appName} */
@@ -1704,7 +1703,6 @@ export const addAppPromo = async (data: {
       appName: data.appName,
       appUrl: data.appUrl,
       imageUrl: data.imageUrl,
-      createdAt: serverTimestamp(),
     });
     console.log('App promo created:', ref.id);
     return ref.id;
@@ -1756,11 +1754,11 @@ export const attachAppPromoToBanner = async (
   brandApp: string,
   subcollection: string,
   promoId: string,
-  bannerData: { bannerName: string; bannerUrl: string; imageUrl: string; bannerType: string }
+  bannerData: { bannerName: string; bannerUrl: string; appUrl: string; bannerType: string }
 ): Promise<void> => {
   try {
     const ref = doc(collection(doc(db, 'Banners', brandApp), subcollection), promoId);
-    await setDoc(ref, { ...bannerData, timestamp: serverTimestamp() });
+    await setDoc(ref, bannerData);
     await updateBrandAppSubcollections(brandApp, subcollection);
     console.log(`Attached promo ${promoId} to Banners/${brandApp}/${subcollection}`);
   } catch (error) {
