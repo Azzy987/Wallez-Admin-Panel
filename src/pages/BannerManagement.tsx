@@ -403,18 +403,36 @@ const AttachToAppTab: React.FC = () => {
               </CardContent>
             </Card>
           ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {bannerDocs.map(d => (
-                <Card key={d.id}>
-                  <CardContent className="pt-4 space-y-2">
-                    {d.imageUrl && (
-                      <img src={d.imageUrl} alt={d.bannerName} className="w-full h-24 object-cover rounded" />
-                    )}
+                <Card key={d.id} className="overflow-hidden">
+                  {d.bannerUrl ? (
+                    <div className="relative h-36 bg-muted">
+                      <img src={d.bannerUrl} alt={d.bannerName} className="w-full h-full object-cover" />
+                      <Badge className="absolute top-2 left-2 text-xs" variant="secondary">
+                        {d.bannerType || 'wallpaper'}
+                      </Badge>
+                    </div>
+                  ) : (
+                    <div className="h-36 bg-muted flex items-center justify-center">
+                      <ImageIcon className="h-8 w-8 text-muted-foreground" />
+                    </div>
+                  )}
+                  <CardContent className="pt-3 pb-3 space-y-1">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
                         <p className="font-medium text-sm truncate">{d.bannerName || d.id}</p>
-                        {d.bannerUrl && <p className="text-xs text-muted-foreground truncate">{d.bannerUrl}</p>}
-                        <Badge variant="outline" className="text-xs mt-1">{d.bannerType || 'wallpaper'}</Badge>
+                        {d.appUrl && (
+                          <a
+                            href={d.appUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-500 hover:underline truncate block max-w-[180px]"
+                          >
+                            {d.appUrl}
+                          </a>
+                        )}
+                        <p className="text-xs text-muted-foreground font-mono truncate mt-0.5">ID: {d.id.slice(0, 12)}…</p>
                       </div>
                       <Button
                         variant="ghost"
