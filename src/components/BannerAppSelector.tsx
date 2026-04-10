@@ -25,7 +25,7 @@ export const AVAILABLE_BRAND_APPS = [
   { id: 'SamsungWallpapers', name: 'Samsung Wallpapers', description: 'Samsung wallpaper app banners' },
   { id: 'OnePlusWallpapers', name: 'OnePlus Wallpapers', description: 'OnePlus wallpaper app banners' },
   { id: 'XiaomiWallpapers', name: 'Xiaomi Wallpapers', description: 'Xiaomi wallpaper app banners' },
-  { id: 'AppleWallpapers', name: 'Apple Wallpapers', description: 'Apple/iPhone wallpaper app banners' },
+  { id: 'iPhoneWallpapers', name: 'iPhone Wallpapers', description: 'Apple/iPhone wallpaper app banners' },
   { id: 'custom', name: 'Custom App', description: 'Custom brand or app-specific banners' }
 ];
 
