@@ -14,10 +14,10 @@ import {
   deleteAppPromo,
   getExistingBannerSubcollections,
   getBannersByBrandAndSubcollection,
+  getBannerBrandApps,
   attachAppPromoToBanner,
   deleteBannerDoc,
 } from '@/lib/firebase';
-import { AVAILABLE_BRAND_APPS } from '@/components/BannerAppSelector';
 import { toast } from 'sonner';
 import { Layers, Trash2, Loader2, Plus, Link2, ImageIcon, RefreshCw } from 'lucide-react';
 
@@ -199,17 +199,24 @@ const AppPromosTab: React.FC = () => {
 // ─── Attach to App Tab ────────────────────────────────────────────────────────
 const AttachToAppTab: React.FC = () => {
   const [promos, setPromos] = useState<AppPromo[]>([]);
+  const [brandApps, setBrandApps] = useState<string[]>([]);
   const [brandApp, setBrandApp] = useState('');
   const [subcollections, setSubcollections] = useState<string[]>([]);
   const [subcollection, setSubcollection] = useState('');
   const [bannerDocs, setBannerDocs] = useState<Array<{ id: string; [k: string]: any }>>([]);
   const [selectedPromo, setSelectedPromo] = useState('');
+  const [loadingApps, setLoadingApps] = useState(false);
   const [loadingSubs, setLoadingSubs] = useState(false);
   const [loadingDocs, setLoadingDocs] = useState(false);
   const [attaching, setAttaching] = useState(false);
 
   useEffect(() => {
     getAppPromos().then(setPromos).catch(() => toast.error('Failed to load promos'));
+    setLoadingApps(true);
+    getBannerBrandApps()
+      .then(setBrandApps)
+      .catch(() => toast.error('Failed to load brand apps'))
+      .finally(() => setLoadingApps(false));
   }, []);
 
   const handleBrandChange = async (brand: string) => {
@@ -287,16 +294,22 @@ const AttachToAppTab: React.FC = () => {
           <CardTitle className="text-base">Step 1 — Select Brand App</CardTitle>
         </CardHeader>
         <CardContent>
-          <Select value={brandApp} onValueChange={handleBrandChange}>
-            <SelectTrigger>
-              <SelectValue placeholder="Choose brand app" />
-            </SelectTrigger>
-            <SelectContent>
-              {AVAILABLE_BRAND_APPS.filter(a => a.id !== 'custom').map(app => (
-                <SelectItem key={app.id} value={app.id}>{app.name}</SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          {loadingApps ? (
+            <div className="flex items-center gap-2 text-muted-foreground text-sm">
+              <Loader2 className="h-4 w-4 animate-spin" /> Loading apps…
+            </div>
+          ) : (
+            <Select value={brandApp} onValueChange={handleBrandChange}>
+              <SelectTrigger>
+                <SelectValue placeholder="Choose brand app" />
+              </SelectTrigger>
+              <SelectContent>
+                {brandApps.map(app => (
+                  <SelectItem key={app} value={app}>{app}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
         </CardContent>
       </Card>
 

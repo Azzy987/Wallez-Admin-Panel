@@ -1734,6 +1734,17 @@ export const deleteAppPromo = async (id: string): Promise<void> => {
   }
 };
 
+/** Fetch all brand app document IDs from the Banners collection */
+export const getBannerBrandApps = async (): Promise<string[]> => {
+  try {
+    const snapshot = await getDocs(collection(db, 'Banners'));
+    return snapshot.docs.map(d => d.id);
+  } catch (error) {
+    console.error('Error fetching banner brand apps:', error);
+    throw error;
+  }
+};
+
 /** Fetch all banner docs inside Banners/{brandApp}/{subcollection} */
 export const getBannersByBrandAndSubcollection = async (
   brandApp: string,
