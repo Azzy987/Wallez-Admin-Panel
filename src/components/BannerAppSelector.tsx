@@ -22,6 +22,7 @@ interface BannerAppSelectorProps {
 
 // Available brand apps for banner selection
 export const AVAILABLE_BRAND_APPS = [
+  { id: 'WallezWallpapers', name: 'Wallez (iOS)', description: 'Wallez glass wallpapers iOS app banners' },
   { id: 'SamsungWallpapers', name: 'Samsung Wallpapers', description: 'Samsung wallpaper app banners' },
   { id: 'OnePlusWallpapers', name: 'OnePlus Wallpapers', description: 'OnePlus wallpaper app banners' },
   { id: 'XiaomiWallpapers', name: 'Xiaomi Wallpapers', description: 'Xiaomi wallpaper app banners' },

@@ -798,6 +798,8 @@ const AddWallpaperForm: React.FC = () => {
             return false;
           }
         }
+      } else if (brand === 'Wallez') {
+        // Wallez uses style categories only — no device series required
       } else {
         // For non-Apple brands, always validate device series
         if (devices[brand] && form.selectedDeviceSeries.length === 0) {
@@ -850,6 +852,32 @@ const AddWallpaperForm: React.FC = () => {
         );
         
         for (const brand of brandCategories) {
+          // Wallez iOS home collection (glass wallpapers)
+          if (brand === 'Wallez') {
+            const mainCategory = form.selectedCategories.find(cat =>
+              categories.find(c => c.categoryName === cat && c.categoryType === 'main')
+            ) || form.category || 'Glass';
+            const wallezData: Record<string, unknown> = {
+              wallpaperName: form.wallpaperName,
+              imageUrl: form.imageUrl,
+              thumbnail: getUrlWithL(form.imageUrl),
+              source: form.source,
+              exclusive: form.exclusive,
+              depthEffect: form.depthEffect,
+              primaryCategory: mainCategory,
+              category: mainCategory,
+              categories: Array.from(new Set([mainCategory, ...(form.subCategory && form.subCategory !== 'None' ? [form.subCategory] : [])])),
+              subCategory: form.subCategory || 'None',
+              tags: Array.isArray((form as { tags?: string[] }).tags) ? (form as { tags?: string[] }).tags : [],
+              colors: Array.isArray((form as { colors?: string[] }).colors) ? (form as { colors?: string[] }).colors : [],
+              views: 0,
+              downloads: 0
+            };
+            await addBrandWallpaperWithId('Wallez', uniqueId, wallezData);
+            createdWallpaperIds.push(uniqueId);
+            continue;
+          }
+
           // Handle Apple based on selection type
           if (brand === 'Apple' && form.appleSelectionType === 'iosVersions') {
             // For iOS versions, create a single wallpaper with iOS version info
