@@ -63,7 +63,8 @@ export interface Device {
   iosVersions?: string[];
 }
 
-export type WallpaperPageCursor = QueryDocumentSnapshot<DocumentData>;
+export type WallpaperPageCursor = QueryDocumentSnapshot<DocumentData> | string;
+const USE_PRODUCTION_READ_API = import.meta.env.PROD;
 
 export type WallpaperPageSortField = 'timestamp' | 'views' | 'downloads' | 'wallpaperName';
 
@@ -1327,6 +1328,14 @@ export const deleteWallpapersByCategory = async (collectionName: string, categor
 // Function to get all categories
 export const getCategories = async (): Promise<Category[]> => {
   try {
+    if (USE_PRODUCTION_READ_API) {
+      const res = await fetch('/api/wallez?action=categories');
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      return (await res.json()) as Category[];
+    }
+
     const querySnapshot = await getDocs(categoriesRef);
     const categories: Category[] = [];
     querySnapshot.forEach((categoryDoc) => {
@@ -1617,6 +1626,24 @@ export const getWallpapersPageForBrand = async ({
   cursor?: WallpaperPageCursor | null;
 }): Promise<WallpaperPageResult> => {
   try {
+    if (USE_PRODUCTION_READ_API && brand === WALLEZ_COLLECTION) {
+      const search = new URLSearchParams({
+        action: 'wallpapers',
+        brand,
+        pageSize: String(pageSize),
+        sortField,
+      });
+      if (category) search.set('category', category);
+      if (cursor && typeof cursor === 'string') search.set('cursor', cursor);
+
+      const res = await fetch(`/api/wallez?${search.toString()}`);
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      const data = (await res.json()) as WallpaperPageResult;
+      return data;
+    }
+
     const brandRef = collection(db, brand);
     const sortDirection = sortField === 'wallpaperName' ? 'asc' : 'desc';
     const constraints: QueryConstraint[] = [];
@@ -1739,6 +1766,14 @@ export type WallezDashboardStats = {
 
 export const getWallezDashboardStats = async (): Promise<WallezDashboardStats> => {
   try {
+    if (USE_PRODUCTION_READ_API) {
+      const res = await fetch('/api/wallez?action=dashboard');
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      return (await res.json()) as WallezDashboardStats;
+    }
+
     const allCategories = await getCategories();
     const styleCategories = allCategories.filter((cat) =>
       isStyleCategory(cat.categoryName)
@@ -2132,6 +2167,18 @@ const sortPlatformBanners = (
 
 export const getPlatformBanners = async (collectionName: string): Promise<PlatformBanner[]> => {
   try {
+    if (USE_PRODUCTION_READ_API) {
+      const search = new URLSearchParams({
+        action: 'platform-banners',
+        collection: collectionName,
+      });
+      const res = await fetch(`/api/wallez?${search.toString()}`);
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      return (await res.json()) as PlatformBanner[];
+    }
+
     const snapshot = await getDocs(collection(db, collectionName));
     return sortPlatformBanners(snapshot.docs);
   } catch (error) {
@@ -2241,6 +2288,14 @@ export interface PaywallWallpaper {
 
 export const getPaywallWallpapers = async (): Promise<PaywallWallpaper[]> => {
   try {
+    if (USE_PRODUCTION_READ_API) {
+      const res = await fetch('/api/wallez?action=paywall-wallpapers');
+      if (!res.ok) {
+        throw new Error(await res.text());
+      }
+      return (await res.json()) as PaywallWallpaper[];
+    }
+
     const snapshot = await getDocs(paywallWallpapersRef);
     const items: PaywallWallpaper[] = [];
     snapshot.forEach((docSnap) => {
