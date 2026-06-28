@@ -12,7 +12,14 @@ import {
   query,
   where,
   deleteDoc,
-  limit
+  limit,
+  orderBy,
+  startAfter,
+  increment,
+  updateDoc,
+  type DocumentData,
+  type QueryConstraint,
+  type QueryDocumentSnapshot,
 } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
@@ -38,28 +45,43 @@ const trendingWallpapersRef = collection(db, "TrendingWallpapers");
 const bannersRef = collection(db, "Banners");
 const categoriesRef = collection(db, "Categories");
 const devicesRef = collection(db, "Devices");
+const paywallWallpapersRef = collection(db, "PaywallWallpapers");
 
 // Types
 export interface Category {
   categoryName: string;
-  categoryType: 'main' | 'brand';
+  name: string;
   thumbnail: string;
-  subcategories?: string[];
+  sortOrder: number;
+  wallpaperCount: number;
 }
+
+export { isBrandCategory, isStyleCategory } from './wallezCategories';
 
 export interface Device {
   devices: string[];
   iosVersions?: string[];
 }
 
-// Main categories with subcategories
-export const mainCategories = {
-  "AMOLED & Dark": [],
-  "4K & Ultra HD": [],
-  "Minimal & Aesthetic": ["Abstract", "Gradient", "Typography"],
-  "Nature & Landscapes": ["Mountains", "Beaches", "Forests", "Sky & Clouds"],
-  "Anime & Gaming": ["Anime Characters", "Gaming Characters", "Fantasy Worlds"]
-};
+export type WallpaperPageCursor = QueryDocumentSnapshot<DocumentData>;
+
+export type WallpaperPageSortField = 'timestamp' | 'views' | 'downloads' | 'wallpaperName';
+
+export interface WallpaperPageResult {
+  wallpapers: Array<{
+    id: string;
+    data: DocumentData;
+  }>;
+  cursor: WallpaperPageCursor | null;
+  hasMore: boolean;
+}
+
+import type { CategoryDraftEntry } from '@/lib/categoryDraft';
+import { WALLEZ_BRAND_NAME, WALLEZ_CATEGORY_ENTRIES, isBrandCategory, isStyleCategory } from './wallezCategories';
+import { normalizeFirestoreColors, normalizeFirestoreTags } from './imageMetadata';
+
+/** @deprecated Use WALLEZ_FLAT_CATEGORIES — flat categories have no subcategory map. */
+export const mainCategories: Record<string, string[]> = {};
 
 // Samsung device models from 2019 onwards
 export const samsungDeviceModels = [
@@ -512,6 +534,35 @@ export const samsungDeviceYearMap: { [key: string]: number } = {
   "Galaxy A56": 2025
 };
 
+const WALLEZ_COLLECTION = 'Wallez';
+
+const getWallpaperCategoryName = (wallpaper: Record<string, unknown>): string | undefined => {
+  const name =
+    (wallpaper.primaryCategory as string | undefined) ||
+    (wallpaper.category as string | undefined);
+  if (!name || name === 'None') return undefined;
+  return name;
+};
+
+/** Increment or decrement Categories/{name}.wallpaperCount (Wallez flat categories only). */
+export const adjustCategoryWallpaperCount = async (
+  categoryName: string | undefined | null,
+  delta: number
+): Promise<void> => {
+  if (!categoryName || categoryName === 'None' || delta === 0) return;
+
+  const categoryRef = doc(categoriesRef, categoryName);
+  const snap = await getDoc(categoryRef);
+  if (!snap.exists()) {
+    console.warn(`Category "${categoryName}" not found — skipping wallpaperCount update`);
+    return;
+  }
+
+  await updateDoc(categoryRef, {
+    wallpaperCount: increment(delta),
+  });
+};
+
 // Function to add a new trending wallpaper
 export const addTrendingWallpaper = async (wallpaper) => {
   try {
@@ -571,6 +622,11 @@ export const addBrandWallpaper = async (brand, wallpaper) => {
       downloads: 0,
       views: 0
     });
+
+    if (brand === WALLEZ_COLLECTION) {
+      await adjustCategoryWallpaperCount(getWallpaperCategoryName(wallpaper), 1);
+    }
+
     console.log(`${brand} wallpaper added with ID: `, docRef.id);
     return docRef.id;
   } catch (error) {
@@ -580,7 +636,11 @@ export const addBrandWallpaper = async (brand, wallpaper) => {
 };
 
 // Function to add a new brand wallpaper with a specific ID
-export const addBrandWallpaperWithId = async (brand, id, wallpaper) => {
+export const addBrandWallpaperWithId = async (
+  brand,
+  id,
+  wallpaper
+) => {
   try {
     // If no subcategory is selected but a main category is, set subcategory to "None"
     if (wallpaper.category && !wallpaper.subCategory) {
@@ -604,9 +664,10 @@ export const addBrandWallpaperWithId = async (brand, id, wallpaper) => {
       views: 0
     });
 
-    if (brand === 'Wallez') {
-      await refreshWallezFacetsDocument();
+    if (brand === WALLEZ_COLLECTION) {
+      await adjustCategoryWallpaperCount(getWallpaperCategoryName(finalWallpaper), 1);
     }
+
     console.log(`${brand} wallpaper added with ID: `, id);
     return id;
   } catch (error) {
@@ -1045,38 +1106,156 @@ export const getBannerByWallpaperUrlNested = async (imageUrl: string, appName?: 
 };
 
 // Function to add a new category
-export const addCategory = async (category) => {
+export const addCategory = async (category: {
+  categoryName: string;
+  thumbnail?: string;
+  sortOrder?: number;
+}) => {
   try {
-    const categoryData: any = {
-      name: category.categoryName,
-      categoryType: category.categoryType,
-      thumbnail: category.thumbnail
-    };
-    
-    // Add subcategories if this is a main category with subcategories
-    if (category.categoryType === 'main' && mainCategories[category.categoryName]) {
-      categoryData.subcategories = mainCategories[category.categoryName];
+    const trimmed = category.categoryName.trim();
+    if (!trimmed) {
+      throw new Error('Category name is required');
     }
-    
-    await setDoc(doc(categoriesRef, category.categoryName), categoryData);
-    console.log("Category added: ", category.categoryName);
-    return category.categoryName;
+    if (isBrandCategory(trimmed)) {
+      throw new Error(`"${WALLEZ_BRAND_NAME}" is reserved for the upload collection`);
+    }
+
+    const existing = await getDoc(doc(categoriesRef, trimmed));
+    if (existing.exists()) {
+      throw new Error(`Category "${trimmed}" already exists`);
+    }
+
+    let sortOrder = category.sortOrder;
+    if (sortOrder === undefined) {
+      const all = await getCategories();
+      const maxOrder = all.reduce((max, cat) => Math.max(max, cat.sortOrder ?? 0), -1);
+      sortOrder = maxOrder + 1;
+    }
+
+    const categoryData: Record<string, unknown> = {
+      name: trimmed,
+      thumbnail: category.thumbnail || '',
+      wallpaperCount: 0,
+      sortOrder,
+    };
+
+    await setDoc(doc(categoriesRef, trimmed), categoryData);
+    console.log('Category added: ', trimmed);
+    return trimmed;
   } catch (error) {
-    console.error("Error adding category: ", error);
+    console.error('Error adding category: ', error);
     throw error;
   }
+};
+
+/** Rename a style category doc and update Wallez wallpapers that reference it. */
+export const renameCategory = async (oldName: string, newName: string): Promise<void> => {
+  const trimmed = newName.trim();
+  if (!trimmed) {
+    throw new Error('Category name is required');
+  }
+  if (oldName === trimmed) return;
+  if (isBrandCategory(oldName) || isBrandCategory(trimmed)) {
+    throw new Error(`"${WALLEZ_BRAND_NAME}" cannot be renamed or used as a category name`);
+  }
+
+  const oldRef = doc(categoriesRef, oldName);
+  const oldSnap = await getDoc(oldRef);
+  if (!oldSnap.exists()) {
+    throw new Error(`Category "${oldName}" not found`);
+  }
+
+  const newRef = doc(categoriesRef, trimmed);
+  const newSnap = await getDoc(newRef);
+  if (newSnap.exists()) {
+    throw new Error(`Category "${trimmed}" already exists`);
+  }
+
+  const data = oldSnap.data();
+  await setDoc(newRef, {
+    ...data,
+    name: trimmed,
+  });
+
+  const wallpapers = await getAllWallpapersForBrand(WALLEZ_COLLECTION);
+  const updatePromises = wallpapers
+    .filter(({ data: wallpaper }) => {
+      const primary = wallpaper.primaryCategory as string | undefined;
+      const legacy = wallpaper.category as string | undefined;
+      const list = wallpaper.categories as string[] | undefined;
+      return (
+        primary === oldName ||
+        legacy === oldName ||
+        (Array.isArray(list) && list.includes(oldName))
+      );
+    })
+    .map(({ id, data: wallpaper }) => {
+      const updates: Record<string, unknown> = {};
+      if (wallpaper.primaryCategory === oldName) updates.primaryCategory = trimmed;
+      if (wallpaper.category === oldName) updates.category = trimmed;
+      if (Array.isArray(wallpaper.categories)) {
+        updates.categories = wallpaper.categories.map((c: string) =>
+          c === oldName ? trimmed : c
+        );
+      }
+      return setDoc(doc(db, WALLEZ_COLLECTION, id), updates, { merge: true });
+    });
+
+  await Promise.all(updatePromises);
+  await deleteDoc(oldRef);
+  console.log(`Category renamed: ${oldName} → ${trimmed}`);
+};
+
+/** Delete a style category (blocked if wallpapers still use it). */
+export const deleteCategory = async (categoryName: string): Promise<void> => {
+  if (isBrandCategory(categoryName)) {
+    throw new Error(
+      `"${WALLEZ_BRAND_NAME}" is the upload collection — it cannot be deleted from here`
+    );
+  }
+
+  const categoryRef = doc(categoriesRef, categoryName);
+  const snap = await getDoc(categoryRef);
+  if (!snap.exists()) return;
+
+  const wallpaperCount = (snap.data().wallpaperCount as number | undefined) ?? 0;
+  if (wallpaperCount > 0) {
+    throw new Error(
+      `"${categoryName}" has ${wallpaperCount} wallpaper(s). Reassign or delete them before removing this category.`
+    );
+  }
+
+  await deleteDoc(categoryRef);
+  console.log('Category deleted: ', categoryName);
 };
 
 // Function to update a wallpaper
 export const updateWallpaper = async (collectionName: string, id: string, data: any) => {
   try {
-    // If no subcategory is selected but a main category is, set subcategory to "None"
     if (data.category && !data.subCategory) {
       data.subCategory = "None";
     }
-    
+
     const docRef = doc(db, collectionName, id);
+    let previousCategory: string | undefined;
+
+    if (collectionName === WALLEZ_COLLECTION) {
+      const existing = await getDoc(docRef);
+      if (existing.exists()) {
+        previousCategory = getWallpaperCategoryName(existing.data() as Record<string, unknown>);
+      }
+    }
+
     await setDoc(docRef, data, { merge: true });
+
+    if (collectionName === WALLEZ_COLLECTION) {
+      const nextCategory = getWallpaperCategoryName(data);
+      if (previousCategory !== nextCategory) {
+        await adjustCategoryWallpaperCount(previousCategory, -1);
+        await adjustCategoryWallpaperCount(nextCategory, 1);
+      }
+    }
+
     console.log(`${collectionName} wallpaper updated with ID: `, id);
     return id;
   } catch (error) {
@@ -1089,7 +1268,21 @@ export const updateWallpaper = async (collectionName: string, id: string, data: 
 export const deleteWallpaper = async (collectionName: string, id: string) => {
   try {
     const docRef = doc(db, collectionName, id);
+    let categoryToDecrement: string | undefined;
+
+    if (collectionName === WALLEZ_COLLECTION) {
+      const existing = await getDoc(docRef);
+      if (existing.exists()) {
+        categoryToDecrement = getWallpaperCategoryName(existing.data() as Record<string, unknown>);
+      }
+    }
+
     await deleteDoc(docRef);
+
+    if (collectionName === WALLEZ_COLLECTION) {
+      await adjustCategoryWallpaperCount(categoryToDecrement, -1);
+    }
+
     console.log(`${collectionName} wallpaper deleted with ID: `, id);
     return id;
   } catch (error) {
@@ -1132,21 +1325,28 @@ export const deleteWallpapersByCategory = async (collectionName: string, categor
 };
 
 // Function to get all categories
-export const getCategories = async () => {
+export const getCategories = async (): Promise<Category[]> => {
   try {
     const querySnapshot = await getDocs(categoriesRef);
-    const categories = [];
-    querySnapshot.forEach((doc) => {
-      const data = doc.data();
+    const categories: Category[] = [];
+    querySnapshot.forEach((categoryDoc) => {
+      const data = categoryDoc.data();
+      const categoryName = categoryDoc.id;
       categories.push({
-        categoryName: doc.id,
-        categoryType: data.categoryType,
-        thumbnail: data.thumbnail
+        categoryName,
+        name: (data.name as string) || categoryName,
+        thumbnail: (data.thumbnail as string) ?? '',
+        sortOrder: (data.sortOrder as number) ?? 0,
+        wallpaperCount: (data.wallpaperCount as number) ?? 0,
       });
+    });
+    categories.sort((a, b) => {
+      if (a.sortOrder !== b.sortOrder) return a.sortOrder - b.sortOrder;
+      return a.name.localeCompare(b.name);
     });
     return categories;
   } catch (error) {
-    console.error("Error getting categories: ", error);
+    console.error('Error getting categories: ', error);
     throw error;
   }
 };
@@ -1203,7 +1403,9 @@ export const checkDuplicateWallpaper = async (imageUrl) => {
     }
     
     // Check in brand collections
-    const brandCategories = (await getCategories()).filter(cat => cat.categoryType === 'brand');
+    const brandCategories = (await getCategories()).filter((cat) =>
+      isBrandCategory(cat.categoryName)
+    );
     
     for (const category of brandCategories) {
       const brand = category.categoryName;
@@ -1241,7 +1443,9 @@ export const getWallpaperIdByUrl = async (imageUrl) => {
     });
     
     // Check in brand collections
-    const brandCategories = (await getCategories()).filter(cat => cat.categoryType === 'brand');
+    const brandCategories = (await getCategories()).filter((cat) =>
+      isBrandCategory(cat.categoryName)
+    );
     
     for (const category of brandCategories) {
       const brand = category.categoryName;
@@ -1356,7 +1560,7 @@ export const getBrandCategories = async () => {
   try {
     const categories = await getCategories();
     return categories
-      .filter(cat => cat.categoryType === 'brand')
+      .filter((cat) => isBrandCategory(cat.categoryName))
       .map(cat => cat.categoryName);
   } catch (error) {
     console.error("Error getting brand categories: ", error);
@@ -1399,6 +1603,100 @@ export const getAllWallpapersForBrand = async (brand) => {
   }
 };
 
+export const getWallpapersPageForBrand = async ({
+  brand,
+  pageSize = 15,
+  sortField = 'timestamp',
+  category,
+  cursor,
+}: {
+  brand: string;
+  pageSize?: number;
+  sortField?: WallpaperPageSortField;
+  category?: string;
+  cursor?: WallpaperPageCursor | null;
+}): Promise<WallpaperPageResult> => {
+  try {
+    const brandRef = collection(db, brand);
+    const sortDirection = sortField === 'wallpaperName' ? 'asc' : 'desc';
+    const constraints: QueryConstraint[] = [];
+
+    if (category && category !== 'all') {
+      constraints.push(where('category', '==', category));
+    }
+
+    constraints.push(orderBy(sortField, sortDirection));
+
+    if (cursor) {
+      constraints.push(startAfter(cursor));
+    }
+
+    constraints.push(limit(pageSize));
+
+    const snapshot = await getDocs(query(brandRef, ...constraints));
+    const wallpapers = snapshot.docs.map((wallpaperDoc) => ({
+      id: wallpaperDoc.id,
+      data: wallpaperDoc.data(),
+    }));
+
+    return {
+      wallpapers,
+      cursor: snapshot.docs[snapshot.docs.length - 1] ?? null,
+      hasMore: snapshot.docs.length === pageSize,
+    };
+  } catch (error) {
+    const missingCompositeIndex =
+      error instanceof Error &&
+      'code' in error &&
+      (error as { code?: unknown }).code === 'failed-precondition';
+
+    if (missingCompositeIndex && category && category !== 'all') {
+      const brandRef = collection(db, brand);
+      const fallbackConstraints: QueryConstraint[] = [
+        where('category', '==', category),
+      ];
+
+      if (cursor) {
+        fallbackConstraints.push(startAfter(cursor));
+      }
+
+      fallbackConstraints.push(limit(pageSize));
+
+      const snapshot = await getDocs(query(brandRef, ...fallbackConstraints));
+      const getSortValue = (data: DocumentData) => {
+        if (sortField === 'timestamp') {
+          return Number((data.timestamp as { seconds?: unknown } | undefined)?.seconds || 0);
+        }
+
+        return Number(data[sortField] || 0);
+      };
+      const wallpapers = snapshot.docs
+        .map((wallpaperDoc) => ({
+          id: wallpaperDoc.id,
+          data: wallpaperDoc.data(),
+        }))
+        .sort((a, b) => {
+          if (sortField === 'wallpaperName') {
+            return String(a.data.wallpaperName || '').localeCompare(String(b.data.wallpaperName || ''));
+          }
+
+          const aValue = getSortValue(a.data);
+          const bValue = getSortValue(b.data);
+          return bValue - aValue;
+        });
+
+      return {
+        wallpapers,
+        cursor: snapshot.docs[snapshot.docs.length - 1] ?? null,
+        hasMore: snapshot.docs.length === pageSize,
+      };
+    }
+
+    console.error(`Error getting paged wallpapers for ${brand}: `, error);
+    throw error;
+  }
+};
+
 // Function to get all wallpapers for a specific brand and device series
 export const getAllWallpapersForBrandDevice = async (brand: string, deviceSeries: string) => {
   try {
@@ -1421,82 +1719,82 @@ export const getAllWallpapersForBrandDevice = async (brand: string, deviceSeries
   }
 };
 
-// Function to get analytics data
-export const getAnalyticsData = async () => {
+// Function to get Wallez dashboard stats (real Firestore values only)
+export type WallezCategoryStat = {
+  name: string;
+  count: number;
+  thumbnail: string;
+};
+
+export type WallezDashboardStats = {
+  homeWallpapers: number;
+  totalDownloads: number;
+  totalViews: number;
+  styleCategories: number;
+  categoriesWithContent: number;
+  depthEffectCount: number;
+  exclusiveCount: number;
+  categoryBreakdown: WallezCategoryStat[];
+};
+
+export const getWallezDashboardStats = async (): Promise<WallezDashboardStats> => {
   try {
-    // Get total wallpapers
-    const trendingSnapshot = await getDocs(trendingWallpapersRef);
-    let totalWallpapers = trendingSnapshot.size;
-    const trendingWallpapers = trendingSnapshot.size;
-    
-    // Get brand wallpapers
-    const brandCategories = (await getCategories()).filter((cat) => cat.categoryType === "brand");
-    const brandWallpapers = {};
-    
-    for (const brand of brandCategories.map((cat) => cat.categoryName)) {
-      try {
-        const brandRef = collection(db, brand);
-        const brandSnapshot = await getDocs(brandRef);
-        totalWallpapers += brandSnapshot.size;
-        brandWallpapers[brand] = brandSnapshot.size;
-      } catch (error) {
-        console.error(`Error getting ${brand} wallpapers:`, error);
-        brandWallpapers[brand] = 0;
-      }
-    }
-    
-    // Get categories count
-    const categoriesSnapshot = await getDocs(categoriesRef);
-    const totalCategories = categoriesSnapshot.size;
-    
-    // Get total downloads (sum of all downloads)
+    const allCategories = await getCategories();
+    const styleCategories = allCategories.filter((cat) =>
+      isStyleCategory(cat.categoryName)
+    );
+
+    const wallezRef = collection(db, WALLEZ_COLLECTION);
+    const wallezSnap = await getDocs(wallezRef);
+
     let totalDownloads = 0;
-    trendingSnapshot.forEach((doc) => {
-      const data = doc.data();
-      totalDownloads += data.downloads || 0;
+    let totalViews = 0;
+    let depthEffectCount = 0;
+    let exclusiveCount = 0;
+
+    wallezSnap.forEach((docSnap) => {
+      const data = docSnap.data();
+      totalDownloads += (data.downloads as number) || 0;
+      totalViews += (data.views as number) || 0;
+      if (data.depthEffect) depthEffectCount += 1;
+      if (data.exclusive) exclusiveCount += 1;
     });
-    
-    // Count download numbers from brand collections as well
-    for (const brand of brandCategories.map((cat) => cat.categoryName)) {
-      try {
-        const brandRef = collection(db, brand);
-        const brandSnapshot = await getDocs(brandRef);
-        brandSnapshot.forEach((doc) => {
-          const data = doc.data();
-          totalDownloads += data.downloads || 0;
-        });
-      } catch (error) {
-        console.error(`Error getting ${brand} download counts:`, error);
-      }
-    }
-    
-    // Use placeholder values for active users and tags for now
-    const activeUsers = 1420; // Placeholder value for now
-    const totalTags = 96; // Placeholder value for now
-    
+
+    const categoryBreakdown: WallezCategoryStat[] = styleCategories
+      .map((cat) => ({
+        name: cat.name,
+        count: cat.wallpaperCount,
+        thumbnail: cat.thumbnail,
+      }))
+      .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
     return {
-      activeUsers,
+      homeWallpapers: wallezSnap.size,
       totalDownloads,
-      totalWallpapers,
-      totalCategories,
-      totalTags,
-      trendingWallpapers,
-      brandWallpapers
+      totalViews,
+      styleCategories: styleCategories.length,
+      categoriesWithContent: styleCategories.filter((c) => c.wallpaperCount > 0).length,
+      depthEffectCount,
+      exclusiveCount,
+      categoryBreakdown,
     };
   } catch (error) {
-    console.error("Error getting analytics data: ", error);
-    // Return default values if there's an error
+    console.error('Error getting Wallez dashboard stats: ', error);
     return {
-      activeUsers: 0,
+      homeWallpapers: 0,
       totalDownloads: 0,
-      totalWallpapers: 0,
-      totalCategories: 0,
-      totalTags: 0,
-      trendingWallpapers: 0,
-      brandWallpapers: {}
+      totalViews: 0,
+      styleCategories: 0,
+      categoriesWithContent: 0,
+      depthEffectCount: 0,
+      exclusiveCount: 0,
+      categoryBreakdown: [],
     };
   }
 };
+
+/** @deprecated Use getWallezDashboardStats */
+export const getAnalyticsData = getWallezDashboardStats;
 
 // Function to get subcategories for a main category
 export const getSubcategories = async (categoryName: string) => {
@@ -1804,22 +2102,221 @@ export const deleteBannerDoc = async (
   }
 };
 
-/** Normalize Wallez wallpaper fields for iOS (multi-category + search tokens). */
+// ─── Platform banners (BannersiOS / BannersAndroid) ───────────────────────────
+
+export type PlatformBanner = {
+  id: string;
+  bannerName: string;
+  bannerUrl: string;
+  wallpaperId?: string;
+  bannerType?: string;
+  sortOrder: number;
+};
+
+const sortPlatformBanners = (
+  docs: Array<{ id: string; data: () => Record<string, unknown> }>
+): PlatformBanner[] =>
+  docs
+    .map((d) => {
+      const data = d.data();
+      return {
+        id: d.id,
+        bannerName: (data.bannerName as string) || '',
+        bannerUrl: (data.bannerUrl as string) || '',
+        wallpaperId: data.wallpaperId as string | undefined,
+        bannerType: data.bannerType as string | undefined,
+        sortOrder: typeof data.sortOrder === 'number' ? data.sortOrder : 0,
+      };
+    })
+    .sort((a, b) => a.sortOrder - b.sortOrder || a.id.localeCompare(b.id));
+
+export const getPlatformBanners = async (collectionName: string): Promise<PlatformBanner[]> => {
+  try {
+    const snapshot = await getDocs(collection(db, collectionName));
+    return sortPlatformBanners(snapshot.docs);
+  } catch (error) {
+    console.error(`Error getting banners from ${collectionName}:`, error);
+    throw error;
+  }
+};
+
+export const getNextBannerSortOrder = async (collectionName: string): Promise<number> => {
+  const banners = await getPlatformBanners(collectionName);
+  if (banners.length === 0) return 0;
+  return Math.max(...banners.map((b) => b.sortOrder), 0) + 1;
+};
+
+export const addPlatformBanner = async (
+  collectionName: string,
+  data: {
+    bannerName: string;
+    bannerUrl: string;
+    wallpaperId?: string;
+    bannerType?: string;
+    sortOrder?: number;
+  }
+): Promise<string> => {
+  try {
+    const sortOrder =
+      data.sortOrder ?? (await getNextBannerSortOrder(collectionName));
+    const docRef = await addDoc(collection(db, collectionName), {
+      bannerName: data.bannerName,
+      bannerUrl: data.bannerUrl,
+      wallpaperId: data.wallpaperId ?? '',
+      bannerType: data.bannerType ?? 'wallpaper',
+      sortOrder,
+      timestamp: serverTimestamp(),
+    });
+    console.log(`Platform banner added to ${collectionName}/${docRef.id}`);
+    return docRef.id;
+  } catch (error) {
+    console.error(`Error adding platform banner to ${collectionName}:`, error);
+    throw error;
+  }
+};
+
+/** Banner doc ID matches Wallez wallpaper ID for instant detail navigation. */
+export const addPlatformBannerWithId = async (
+  collectionName: string,
+  id: string,
+  data: {
+    bannerName: string;
+    bannerUrl: string;
+    bannerType?: string;
+    sortOrder?: number;
+  }
+): Promise<string> => {
+  try {
+    const sortOrder =
+      data.sortOrder ?? (await getNextBannerSortOrder(collectionName));
+    await setDoc(doc(db, collectionName, id), {
+      bannerName: data.bannerName,
+      bannerUrl: data.bannerUrl,
+      wallpaperId: id,
+      bannerType: data.bannerType ?? 'wallpaper',
+      sortOrder,
+      timestamp: serverTimestamp(),
+    });
+    console.log(`Platform banner added to ${collectionName}/${id}`);
+    return id;
+  } catch (error) {
+    console.error(`Error adding platform banner to ${collectionName}/${id}:`, error);
+    throw error;
+  }
+};
+
+export const updatePlatformBanner = async (
+  collectionName: string,
+  id: string,
+  updates: Partial<Pick<PlatformBanner, 'bannerName' | 'bannerUrl' | 'sortOrder' | 'wallpaperId'>>
+): Promise<void> => {
+  try {
+    await updateDoc(doc(db, collectionName, id), updates);
+    console.log(`Updated ${collectionName}/${id}`);
+  } catch (error) {
+    console.error(`Error updating platform banner ${collectionName}/${id}:`, error);
+    throw error;
+  }
+};
+
+export const deletePlatformBanner = async (
+  collectionName: string,
+  id: string
+): Promise<void> => {
+  try {
+    await deleteDoc(doc(db, collectionName, id));
+    console.log(`Deleted ${collectionName}/${id}`);
+  } catch (error) {
+    console.error(`Error deleting platform banner ${collectionName}/${id}:`, error);
+    throw error;
+  }
+};
+
+// ─── Paywall banners ──────────────────────────────────────────────────────────
+
+export interface PaywallWallpaper {
+  id: string;
+  wallpaperUrl: string;
+}
+
+export const getPaywallWallpapers = async (): Promise<PaywallWallpaper[]> => {
+  try {
+    const snapshot = await getDocs(paywallWallpapersRef);
+    const items: PaywallWallpaper[] = [];
+    snapshot.forEach((docSnap) => {
+      const data = docSnap.data();
+      if (typeof data.wallpaperUrl === 'string' && data.wallpaperUrl.trim()) {
+        items.push({
+          id: docSnap.id,
+          wallpaperUrl: data.wallpaperUrl,
+        });
+      }
+    });
+    return items.sort((a, b) => a.id.localeCompare(b.id));
+  } catch (error) {
+    console.error('Error getting paywall wallpapers:', error);
+    throw error;
+  }
+};
+
+export const addPaywallWallpaper = async (wallpaperUrl: string): Promise<string> => {
+  try {
+    const docRef = await addDoc(paywallWallpapersRef, {
+      wallpaperUrl,
+      createdAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
+    console.log('Paywall wallpaper added:', docRef.id);
+    return docRef.id;
+  } catch (error) {
+    console.error('Error adding paywall wallpaper:', error);
+    throw error;
+  }
+};
+
+export const updatePaywallWallpaper = async (id: string, wallpaperUrl: string): Promise<void> => {
+  try {
+    await updateDoc(doc(paywallWallpapersRef, id), {
+      wallpaperUrl,
+      updatedAt: serverTimestamp(),
+    });
+    console.log('Paywall wallpaper updated:', id);
+  } catch (error) {
+    console.error('Error updating paywall wallpaper:', error);
+    throw error;
+  }
+};
+
+export const deletePaywallWallpaper = async (id: string): Promise<void> => {
+  try {
+    await deleteDoc(doc(paywallWallpapersRef, id));
+    console.log('Paywall wallpaper deleted:', id);
+  } catch (error) {
+    console.error('Error deleting paywall wallpaper:', error);
+    throw error;
+  }
+};
+
+/** Normalize Wallez wallpaper fields for iOS (single category + search tokens). */
 export const normalizeWallezWallpaperFields = (wallpaper: Record<string, any>) => {
-  const legacyCategory = wallpaper.category;
-  let categories: string[] = [];
-  if (Array.isArray(wallpaper.categories)) {
-    categories = wallpaper.categories.filter(Boolean);
-  } else if (typeof legacyCategory === 'string' && legacyCategory) {
-    categories = [legacyCategory];
-  }
-  if (wallpaper.primaryCategory && !categories.includes(wallpaper.primaryCategory)) {
-    categories.unshift(wallpaper.primaryCategory);
-  }
-  wallpaper.primaryCategory = wallpaper.primaryCategory || categories[0] || '';
-  wallpaper.categories = categories;
-  wallpaper.tags = Array.isArray(wallpaper.tags) ? wallpaper.tags : [];
-  wallpaper.colors = Array.isArray(wallpaper.colors) ? wallpaper.colors : [];
+  const category =
+    (typeof wallpaper.category === 'string' && wallpaper.category) ||
+    (typeof wallpaper.primaryCategory === 'string' && wallpaper.primaryCategory) ||
+    '';
+  wallpaper.category = category;
+  wallpaper.primaryCategory = category;
+  delete wallpaper.categories;
+  wallpaper.tags = Array.isArray(wallpaper.tags)
+    ? normalizeFirestoreTags(wallpaper.tags, {
+        mainCategory: wallpaper.primaryCategory || wallpaper.category,
+        subCategory: wallpaper.subCategory,
+        wallpaperName: wallpaper.wallpaperName,
+        dimensions: wallpaper.dimensions,
+      })
+    : [];
+  wallpaper.colors = Array.isArray(wallpaper.colors)
+    ? normalizeFirestoreColors(wallpaper.colors)
+    : [];
   wallpaper.searchTokens = buildWallezSearchTokens(wallpaper);
 };
 
@@ -1831,35 +2328,69 @@ const buildWallezSearchTokens = (wallpaper: Record<string, any>): string[] => {
   };
   add(wallpaper.wallpaperName);
   add(wallpaper.primaryCategory);
-  (wallpaper.categories || []).forEach((c: string) => add(c));
+  add(wallpaper.category);
   (wallpaper.tags || []).forEach((t: string) => add(t));
-  return Array.from(tokens).slice(0, 40);
+  return Array.from(tokens).slice(0, 20);
 };
 
-/** Rebuild WallezFacets/metadata from Wallez collection (run after uploads). */
-export const refreshWallezFacetsDocument = async () => {
-  try {
-    const snap = await getDocs(collection(db, 'Wallez'));
-    const tagCount: Record<string, number> = {};
-    const colorCount: Record<string, number> = {};
-    snap.forEach((docSnap) => {
-      const data = docSnap.data();
-      (data.tags || []).forEach((t: string) => { tagCount[t] = (tagCount[t] || 0) + 1; });
-      (data.colors || []).forEach((c: string) => { colorCount[c] = (colorCount[c] || 0) + 1; });
+/** Sync draft categories to Firestore — creates missing docs; updates thumbnails/order on existing without resetting counts. */
+export const initializeWallezCategories = async (
+  entries: CategoryDraftEntry[] = WALLEZ_CATEGORY_ENTRIES
+): Promise<{
+  created: string[];
+  skipped: string[];
+  updated: string[];
+}> => {
+  const created: string[] = [];
+  const skipped: string[] = [];
+  const updated: string[] = [];
+
+  const brandRef = doc(categoriesRef, WALLEZ_BRAND_NAME);
+  const brandSnap = await getDoc(brandRef);
+  if (brandSnap.exists()) {
+    skipped.push(WALLEZ_BRAND_NAME);
+  } else {
+    await setDoc(brandRef, {
+      name: WALLEZ_BRAND_NAME,
+      thumbnail: '',
     });
-    const tags = Object.entries(tagCount)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 100);
-    const colors = Object.entries(colorCount)
-      .map(([name, count]) => ({ name, count }))
-      .sort((a, b) => b.count - a.count)
-      .slice(0, 100);
-    await setDoc(doc(db, 'WallezFacets', 'metadata'), { tags, colors, updatedAt: serverTimestamp() }, { merge: true });
-    console.log(`Wallez facets updated: ${tags.length} tags, ${colors.length} colors`);
-  } catch (error) {
-    console.error('Error refreshing Wallez facets:', error);
+    created.push(WALLEZ_BRAND_NAME);
   }
+
+  for (const entry of entries) {
+    const { name, thumbnail = '', sortOrder = 0 } = entry;
+    if (!name || isBrandCategory(name)) continue;
+
+    const categoryRef = doc(categoriesRef, name);
+    const snap = await getDoc(categoryRef);
+    if (snap.exists()) {
+      skipped.push(name);
+      const existing = snap.data();
+      const patch: Record<string, unknown> = {};
+      if (thumbnail && existing.thumbnail !== thumbnail) {
+        patch.thumbnail = thumbnail;
+      }
+      if (existing.sortOrder !== sortOrder) {
+        patch.sortOrder = sortOrder;
+      }
+      if (Object.keys(patch).length > 0) {
+        await updateDoc(categoryRef, patch);
+        updated.push(name);
+      }
+      continue;
+    }
+
+    await setDoc(categoryRef, {
+      name,
+      thumbnail,
+      sortOrder,
+      wallpaperCount: 0,
+    });
+    created.push(name);
+  }
+
+  console.log('Wallez categories initialized:', { created, skipped, updated });
+  return { created, skipped, updated };
 };
 
 export { app, db, storage };

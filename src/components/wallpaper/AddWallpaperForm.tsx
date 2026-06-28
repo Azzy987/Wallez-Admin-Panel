@@ -1,22 +1,21 @@
 import React, { useState, useEffect } from 'react';
 import { 
-  addTrendingWallpaperWithId,
   addBrandWallpaperWithId,
-  addBannerWithId,
-  addBannerToMultipleApps,
-  addBannerWithCustomStructure,
+  addPlatformBannerWithId,
   getCategories, 
-  getDevices,
   checkDuplicateWallpaper,
   Category,
-  Device,
-  samsungDeviceYearMap,
-  iphoneDeviceYearMap,
-  oneplusDeviceYearMap,
-  xiaomiDeviceYearMap
+  isBrandCategory,
+  isStyleCategory,
 } from '@/lib/firebase';
+import {
+  WALLEZ_BRAND_NAME,
+  BANNERS_IOS_COLLECTION,
+  BANNERS_ANDROID_COLLECTION,
+  BannerPlatform,
+} from '@/lib/wallezCategories';
 import { toast } from 'sonner';
-import CategoryDialog from './CategoryDialog';
+import { UploadedWallpaperPayload } from '@/lib/imageMetadata';
 import WallpaperFormHeader from './FormComponents/WallpaperFormHeader';
 import WallpaperFormItem from './FormComponents/WallpaperFormItem';
 import SubmitButton from './FormComponents/SubmitButton';
@@ -30,6 +29,7 @@ interface WallpaperForm {
   source: string;
   exclusive: boolean;
   addAsBanner: boolean;
+  bannerPlatforms: BannerPlatform[];
   bannerApps: string[];
   selectedBrandApp: string;
   customBrandApp: string;
@@ -51,6 +51,10 @@ interface WallpaperForm {
   sameWallpaperName?: boolean;
   sameWallpaperNameBelow?: boolean;
   sameLaunchYear?: boolean;
+  dimensions?: string;
+  fileSize?: string;
+  tags?: string[];
+  colors?: string[];
 }
 
 const initialFormState: WallpaperForm = {
@@ -59,6 +63,7 @@ const initialFormState: WallpaperForm = {
   source: 'Official',
   exclusive: false,
   addAsBanner: false,
+  bannerPlatforms: ['ios'],
   bannerApps: [],
   selectedBrandApp: '',
   customBrandApp: '',
@@ -67,7 +72,7 @@ const initialFormState: WallpaperForm = {
   appPromoName: '',
   appPromoUrl: '',
   depthEffect: false,
-  selectedCategories: [],
+  selectedCategories: ['Wallez'],
   selectedDeviceSeries: [],
   appleSelectionType: 'devices',
   category: '',
@@ -77,7 +82,11 @@ const initialFormState: WallpaperForm = {
   sameSource: false,
   sameWallpaperName: false,
   sameWallpaperNameBelow: false,
-  sameLaunchYear: false
+  sameLaunchYear: false,
+  dimensions: '',
+  fileSize: '',
+  tags: [],
+  colors: [],
 };
 
 const appleDeviceYearMap: { [key: string]: number } = {
@@ -112,10 +121,8 @@ const AddWallpaperForm: React.FC = () => {
     { ...initialFormState }
   ]);
   const [categories, setCategories] = useState<Category[]>([]);
-  const [devices, setDevices] = useState<{[key: string]: Device | null}>({});
   const [loading, setLoading] = useState(false);
   const [showBrandOptions, setShowBrandOptions] = useState<{[key: string]: boolean}>({});
-  const [categoryDialogOpen, setCategoryDialogOpen] = useState(false);
   const [useSharedCategories, setUseSharedCategories] = useState(false);
   const [wallpaperCount, setWallpaperCount] = useState<number>(3);
   const [uploadProgress, setUploadProgress] = useState<number>(0);
@@ -132,6 +139,13 @@ const AddWallpaperForm: React.FC = () => {
       try {
         const categoriesData = await getCategories();
         setCategories(categoriesData);
+        setWallpaperForms((prev) =>
+          prev.map((form, i) =>
+            i === 0 && !form.selectedCategories.includes('Wallez')
+              ? { ...form, selectedCategories: [...form.selectedCategories.filter((c) => c !== 'Wallez'), 'Wallez'] }
+              : form
+          )
+        );
       } catch (error) {
         console.error('Error fetching categories:', error);
         toast.error('Failed to load categories');
@@ -217,6 +231,7 @@ const AddWallpaperForm: React.FC = () => {
         source: firstForm.source,
         exclusive: firstForm.exclusive,
         addAsBanner: firstForm.addAsBanner,
+        bannerPlatforms: [...firstForm.bannerPlatforms],
         selectedBrandApp: firstForm.selectedBrandApp,
         customBrandApp: firstForm.customBrandApp,
         subcollectionName: firstForm.subcollectionName,
@@ -251,101 +266,57 @@ const AddWallpaperForm: React.FC = () => {
   };
 
   // Handle multiple wallpaper creation from S3 uploads
-  const handleAddMultipleWallpapers = (urls: string[]) => {
-    console.log('🚀 Creating wallpaper forms for URLs:', urls);
-    console.log(`📊 Creating ${urls.length} wallpaper forms`);
-    
-    const newForms = urls.map((url, index) => {
-      console.log(`📝 Processing wallpaper #${index + 1}: ${url}`);
-      // Determine the wallpaper name based on category selection
-      const determineWallpaperName = (url: string): string => {
-        const firstForm = wallpaperForms[0];
-        const brandCategory = getSelectedBrandCategory(firstForm);
-        
-        // For Samsung, Apple, OnePlus, and Xiaomi categories, use series name if available, otherwise extract from filename
-        if ((brandCategory === 'Samsung' || brandCategory === 'Apple' || brandCategory === 'OnePlus' || brandCategory === 'Xiaomi') && firstForm?.series) {
-          console.log(`📝 Using ${brandCategory} series name for wallpaper ${index + 1}: "${firstForm.series}"`);
-          return firstForm.series;
-        }
-        
-        // For other categories or no series selected, extract from filename
-        const extractWallpaperName = (url: string): string => {
-          // Extract filename from URL
-          const urlParts = url.split('/');
-          const filename = urlParts[urlParts.length - 1];
-          
-          // Remove file extension
-          let name = filename.replace(/\.[^/.]+$/, '');
-          
-          // Remove resolution patterns (e.g., 4k, 2160x3840, 1080p, etc.)
-          name = name.replace(/\d{3,4}x\d{3,4}/g, ''); // Remove dimensions like 2160x3840
-          name = name.replace(/[_-]?\d{1,4}[kK]/g, ''); // Remove 4k, 1080p, etc.
-          name = name.replace(/[_-]?\d{1,4}[pP]/g, ''); // Remove 1080p, 720p, etc.
-          
-          // Remove common suffixes and numbers at the end
-          name = name.replace(/[_-]?\d{6,}$/g, ''); // Remove long numbers like 140741
-          name = name.replace(/[_-]?\d{1,2}$/g, ''); // Remove short numbers like -4, -12
-          
-          // Remove common file suffixes
-          name = name.replace(/[_-]?(wallpaper|bg|background|img|image|pic|picture|art|design|hd|ultra|wv|uw|wide|ultrawide|vertical|portrait|landscape)/gi, '');
-          
-          // Clean up multiple dashes/underscores and trim
-          name = name.replace(/[_-]+/g, '-').replace(/^-|-$/g, '');
-          
-          // Capitalize first letter of each word
-          name = name.split('-').map(word => 
-            word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
-          ).join(' ');
-          
-          // If name is empty after cleaning, use original filename
-          if (!name || name.trim() === '') {
-            return filename.replace(/\.[^/.]+$/, '');
-          }
-          
-          return name.trim();
-        };
-        
-        const extractedName = extractWallpaperName(url);
-        console.log(`📝 Extracted name from filename for wallpaper ${index + 1}: "${extractedName}" from URL: ${url}`);
-        return extractedName;
-      };
-      
-      const determinedName = determineWallpaperName(url);
-      
-      const newForm = {
-        ...initialFormState,
-        imageUrl: url,
-        wallpaperName: determinedName,
-        sameAsCategory: wallpaperForms[0]?.sameAsCategory || false,
-        sameWallpaperName: wallpaperForms[0]?.sameWallpaperName || false,
-        sameLaunchYear: wallpaperForms[0]?.sameLaunchYear || false,
-        selectedCategories: wallpaperForms[0]?.selectedCategories || [],
-        selectedDeviceSeries: wallpaperForms[0]?.selectedDeviceSeries || [],
-        category: wallpaperForms[0]?.category || '',
-        subCategory: wallpaperForms[0]?.subCategory || '',
-        series: wallpaperForms[0]?.series || '',
-        depthEffect: wallpaperForms[0]?.depthEffect || false,
-        source: wallpaperForms[0]?.source || 'Official',
-        exclusive: wallpaperForms[0]?.exclusive || false,
-        addAsBanner: wallpaperForms[0]?.addAsBanner || false,
-        selectedBrandApp: wallpaperForms[0]?.selectedBrandApp || '',
-        customBrandApp: wallpaperForms[0]?.customBrandApp || '',
-        subcollectionName: wallpaperForms[0]?.subcollectionName || '',
-        bannerType: wallpaperForms[0]?.bannerType || 'wallpaper',
-        appPromoName: wallpaperForms[0]?.appPromoName || '',
-        appPromoUrl: wallpaperForms[0]?.appPromoUrl || '',
-        selectedIosVersion: wallpaperForms[0]?.selectedIosVersion || '',
-        launchYear: wallpaperForms[0]?.launchYear || ''
-      };
-      
-      console.log(`✅ Created form #${index + 1}:`, {
-        imageUrl: newForm.imageUrl,
-        wallpaperName: newForm.wallpaperName,
-        urlValid: newForm.imageUrl.startsWith('http')
-      });
-      
-      return newForm;
-    });
+  const handleAddMultipleWallpapers = (payloads: UploadedWallpaperPayload[]) => {
+    console.log('🚀 Creating wallpaper forms for uploads:', payloads);
+
+    const extractWallpaperName = (imageUrl: string): string => {
+      const urlParts = imageUrl.split('/');
+      const filename = urlParts[urlParts.length - 1];
+      let name = filename.replace(/\.[^/.]+$/, '');
+      name = name.replace(/\d{3,4}x\d{3,4}/g, '');
+      name = name.replace(/[_-]?\d{1,4}[kK]/g, '');
+      name = name.replace(/[_-]?\d{1,4}[pP]/g, '');
+      name = name.replace(/[_-]?\d{6,}$/g, '');
+      name = name.replace(/[_-]?\d{1,2}$/g, '');
+      name = name.replace(/[_-]?(wallpaper|bg|background|img|image|pic|picture|art|design|hd|ultra|wv|uw|wide|ultrawide|vertical|portrait|landscape)/gi, '');
+      name = name.replace(/[_-]+/g, '-').replace(/^-|-$/g, '');
+      name = name.split('-').map(word =>
+        word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+      ).join(' ');
+      if (!name || name.trim() === '') {
+        return filename.replace(/\.[^/.]+$/, '');
+      }
+      return name.trim();
+    };
+
+    const newForms = payloads.map((payload) => ({
+      ...initialFormState,
+      imageUrl: payload.url,
+      wallpaperName: extractWallpaperName(payload.url),
+      dimensions: payload.dimensions,
+      fileSize: payload.fileSize,
+      tags: payload.tags,
+      colors: payload.colors,
+      sameAsCategory: wallpaperForms[0]?.sameAsCategory || false,
+      sameWallpaperName: wallpaperForms[0]?.sameWallpaperName || false,
+      sameLaunchYear: wallpaperForms[0]?.sameLaunchYear || false,
+      selectedCategories: wallpaperForms[0]?.selectedCategories || ['Wallez'],
+      category: wallpaperForms[0]?.category || '',
+      subCategory: wallpaperForms[0]?.subCategory || '',
+      depthEffect: wallpaperForms[0]?.depthEffect || false,
+      source: wallpaperForms[0]?.source || 'Official',
+      exclusive: wallpaperForms[0]?.exclusive || false,
+      addAsBanner: wallpaperForms[0]?.addAsBanner || false,
+      bannerPlatforms: wallpaperForms[0]?.bannerPlatforms?.length
+        ? [...wallpaperForms[0].bannerPlatforms]
+        : ['ios'],
+      selectedBrandApp: wallpaperForms[0]?.selectedBrandApp || '',
+      customBrandApp: wallpaperForms[0]?.customBrandApp || '',
+      subcollectionName: wallpaperForms[0]?.subcollectionName || 'WallezBanners',
+      bannerType: wallpaperForms[0]?.bannerType || 'wallpaper',
+      appPromoName: wallpaperForms[0]?.appPromoName || '',
+      appPromoUrl: wallpaperForms[0]?.appPromoUrl || '',
+    }));
     
     console.log(`🎯 Setting ${newForms.length} wallpaper forms`);
     setWallpaperForms(newForms);
@@ -401,12 +372,12 @@ const AddWallpaperForm: React.FC = () => {
       
       if (index === 0) {
         if (field === 'selectedCategories' || field === 'source' || 
-            field === 'exclusive' || field === 'addAsBanner' || field === 'bannerApps' ||
+            field === 'exclusive' || field === 'addAsBanner' || field === 'bannerPlatforms' ||
+            field === 'bannerApps' ||
             field === 'selectedBrandApp' || field === 'customBrandApp' || field === 'subcollectionName' ||
             field === 'selectedDeviceSeries' || field === 'selectedIosVersion' || field === 'appleSelectionType' ||
             field === 'category' || field === 'series' || field === 'depthEffect' ||
-            field === 'launchYear' || field === 'subCategory' || field === 'sameWallpaperName' ||
-            field === 'sameWallpaperNameBelow' || field === 'sameLaunchYear') {
+            field === 'launchYear' || field === 'subCategory' || field === 'sameLaunchYear') {
           updatedForms.forEach((form, i) => {
             if (i !== 0 && form.sameAsCategory) {
               updatedForms[i] = {
@@ -417,10 +388,10 @@ const AddWallpaperForm: React.FC = () => {
           });
         }
         
-        // Special handling for wallpaper name - propagate if sameWallpaperName is checked
+        // Special handling for wallpaper name - propagate if sameAsCategory on linked forms
         if (field === 'wallpaperName') {
           updatedForms.forEach((form, i) => {
-            if (i !== 0 && (form.sameAsCategory || updatedForms[0].sameWallpaperName)) {
+            if (i !== 0 && form.sameAsCategory) {
               updatedForms[i] = {
                 ...updatedForms[i],
                 wallpaperName: value
@@ -487,40 +458,6 @@ const AddWallpaperForm: React.FC = () => {
         }
       }
 
-      // Handle sameWallpaperName functionality
-      if (field === 'sameWallpaperName') {
-        if (value === true) {
-          // When checking "Same wallpaper name in all wallpapers"
-          const wallpaperNameValue = updatedForms[index].wallpaperName;
-          updatedForms.forEach((form, i) => {
-            if (i !== index) {
-              updatedForms[i] = {
-                ...updatedForms[i],
-                wallpaperName: wallpaperNameValue
-              };
-            }
-          });
-        }
-        // When unchecking, don't reset other wallpaper names as they might be intentionally different
-      }
-
-      // Handle sameWallpaperNameBelow functionality
-      if (field === 'sameWallpaperNameBelow') {
-        if (value === true) {
-          // When checking "Same wallpaper name for below items"
-          const wallpaperNameValue = updatedForms[index].wallpaperName;
-          updatedForms.forEach((form, i) => {
-            if (i > index) { // Only apply to items BELOW the current index
-              updatedForms[i] = {
-                ...updatedForms[i],
-                wallpaperName: wallpaperNameValue
-              };
-            }
-          });
-        }
-        // When unchecking, don't reset other wallpaper names as they might be intentionally different
-      }
-
       // Handle sameLaunchYear functionality
       if (field === 'sameLaunchYear') {
         if (value === true) {
@@ -538,31 +475,19 @@ const AddWallpaperForm: React.FC = () => {
         // When unchecking, don't reset other launch years as they might be intentionally different
       }
 
-      // Handle wallpaper name propagation for sameWallpaperNameBelow (works for any form, not just index 0)
-      if (field === 'wallpaperName' && updatedForms[index].sameWallpaperNameBelow) {
-        updatedForms.forEach((form, i) => {
-          if (i > index) { // Only apply to items BELOW the current index
-            updatedForms[i] = {
-              ...updatedForms[i],
-              wallpaperName: value
-            };
-          }
-        });
-      }
-      
       return updatedForms;
     });
   };
   
-  const handleCategoryChange = (index: number, categoryType: 'main' | 'brand', categoryName: string) => {
+  const handleCategoryChange = (index: number, categoryName: string) => {
     setWallpaperForms(prevForms => {
       const updatedForms = [...prevForms];
       const form = { ...updatedForms[index] };
+      const isBrand = isBrandCategory(categoryName);
       
-      const otherTypeCategories = form.selectedCategories.filter(cat => {
-        const catObj = categories.find(c => c.categoryName === cat);
-        return catObj && catObj.categoryType !== categoryType;
-      });
+      const otherTypeCategories = form.selectedCategories.filter(cat =>
+        isBrandCategory(cat) !== isBrand
+      );
       
       form.selectedCategories = [...otherTypeCategories, categoryName];
       
@@ -570,13 +495,12 @@ const AddWallpaperForm: React.FC = () => {
         form.depthEffect = true;
       }
       
-      if (categoryType === 'main') {
+      if (isStyleCategory(categoryName)) {
         form.category = categoryName;
       }
       
-      if (categoryType === 'brand') {
+      if (isBrand) {
         setShowBrandOptions(prev => ({...prev, [categoryName]: true}));
-        fetchDevices(categoryName);
       }
       
       updatedForms[index] = form;
@@ -704,11 +628,9 @@ const AddWallpaperForm: React.FC = () => {
         form.depthEffect = false;
       }
       
-      const categoryObj = categories.find(c => c.categoryName === category);
-      
-      if (categoryObj?.categoryType === 'main') {
+      if (isStyleCategory(category)) {
         form.category = '';
-      } else if (categoryObj?.categoryType === 'brand') {
+      } else if (isBrandCategory(category)) {
         setShowBrandOptions(prev => ({...prev, [category]: false}));
         form.selectedDeviceSeries = [];
         form.series = '';
@@ -741,27 +663,6 @@ const AddWallpaperForm: React.FC = () => {
     });
   };
   
-  const fetchDevices = async (brand: string) => {
-    try {
-      const devicesData = await getDevices(brand);
-      
-      if (devicesData) {
-        if ('devices' in devicesData) {
-          setDevices(prev => ({...prev, [brand]: devicesData as Device}));
-        } else {
-          const formattedDeviceData: Device = {
-            devices: Array.isArray(devicesData.devices) ? devicesData.devices : [],
-            iosVersions: Array.isArray(devicesData.iosVersions) ? devicesData.iosVersions : []
-          };
-          setDevices(prev => ({...prev, [brand]: formattedDeviceData}));
-        }
-      }
-    } catch (error) {
-      console.error(`Error fetching devices for ${brand}:`, error);
-      toast.error(`Failed to load devices for ${brand}`);
-    }
-  };
-  
   const validateForm = (form: WallpaperForm): boolean => {
     if (!form.imageUrl.trim()) {
       toast.error('Image URL is required');
@@ -777,36 +678,22 @@ const AddWallpaperForm: React.FC = () => {
       toast.error('At least one category must be selected');
       return false;
     }
-    
-    const brandCategories = form.selectedCategories.filter(cat => 
-      categories.find(c => c.categoryName === cat && c.categoryType === 'brand')
-    );
-    
-    for (const brand of brandCategories) {
-      // Handle Apple validation based on selection type
-      if (brand === 'Apple') {
-        if (form.appleSelectionType === 'iosVersions') {
-          // When iOS versions is selected, validate iOS version
-          if (!form.selectedIosVersion && devices[brand]?.iosVersions?.length > 0) {
-            toast.error('Please select an iOS version for Apple wallpapers');
-            return false;
-          }
-        } else {
-          // When devices is selected (default), validate device series
-          if (devices[brand] && form.selectedDeviceSeries.length === 0) {
-            toast.error('Please select an iPhone device for Apple wallpapers');
-            return false;
-          }
-        }
-      } else if (brand === 'Wallez') {
-        // Wallez uses style categories only — no device series required
-      } else {
-        // For non-Apple brands, always validate device series
-        if (devices[brand] && form.selectedDeviceSeries.length === 0) {
-          toast.error(`At least one device series must be selected for ${brand} wallpapers`);
-          return false;
-        }
-      }
+
+    const hasMainCategory = form.selectedCategories.some(cat => isStyleCategory(cat));
+
+    if (!hasMainCategory && !form.category) {
+      toast.error('Please select a style category (e.g. Cute, Minimal, Anime)');
+      return false;
+    }
+
+    if (!form.selectedCategories.includes('Wallez')) {
+      toast.error('Wallez brand must be selected for uploads');
+      return false;
+    }
+
+    if (form.addAsBanner && (!form.bannerPlatforms || form.bannerPlatforms.length === 0)) {
+      toast.error('Select at least one banner platform (iOS or Android)');
+      return false;
     }
     
     return true;
@@ -824,39 +711,15 @@ const AddWallpaperForm: React.FC = () => {
       
       try {
         // Handle main/trending categories
-        const mainCategory = form.selectedCategories.find(cat => 
-          categories.find(c => c.categoryName === cat && c.categoryType === 'main')
-        );
+        const mainCategory = form.selectedCategories.find(cat => isStyleCategory(cat));
         
-        if (mainCategory || form.category) {
-          const trendingWallpaperData = {
-            wallpaperName: form.wallpaperName,
-            imageUrl: form.imageUrl,
-            thumbnail: getUrlWithL(form.imageUrl),
-            source: form.source,
-            exclusive: form.exclusive,
-            depthEffect: form.depthEffect,
-            category: form.category || mainCategory || '',
-            subCategory: form.subCategory || 'None',
-            views: 0,
-            downloads: 0
-          };
-          
-          await addTrendingWallpaperWithId(uniqueId, trendingWallpaperData);
-          createdWallpaperIds.push(uniqueId); // Track the trending wallpaper ID
-        }
-        
-        // Handle brand categories
-        const brandCategories = form.selectedCategories.filter(cat => 
-          categories.find(c => c.categoryName === cat && c.categoryType === 'brand')
-        );
+        const brandCategories = form.selectedCategories.filter(cat => isBrandCategory(cat));
         
         for (const brand of brandCategories) {
           // Wallez iOS home collection (glass wallpapers)
           if (brand === 'Wallez') {
-            const mainCategory = form.selectedCategories.find(cat =>
-              categories.find(c => c.categoryName === cat && c.categoryType === 'main')
-            ) || form.category || 'Glass';
+            const mainCategory = form.selectedCategories.find(cat => isStyleCategory(cat))
+              || form.category || 'Anime';
             const wallezData: Record<string, unknown> = {
               wallpaperName: form.wallpaperName,
               imageUrl: form.imageUrl,
@@ -864,12 +727,12 @@ const AddWallpaperForm: React.FC = () => {
               source: form.source,
               exclusive: form.exclusive,
               depthEffect: form.depthEffect,
-              primaryCategory: mainCategory,
               category: mainCategory,
-              categories: Array.from(new Set([mainCategory, ...(form.subCategory && form.subCategory !== 'None' ? [form.subCategory] : [])])),
-              subCategory: form.subCategory || 'None',
-              tags: Array.isArray((form as { tags?: string[] }).tags) ? (form as { tags?: string[] }).tags : [],
-              colors: Array.isArray((form as { colors?: string[] }).colors) ? (form as { colors?: string[] }).colors : [],
+              subCategory: 'None',
+              dimensions: form.dimensions || '',
+              size: form.fileSize || '',
+              tags: form.tags || [],
+              colors: form.colors || [],
               views: 0,
               downloads: 0
             };
@@ -877,91 +740,25 @@ const AddWallpaperForm: React.FC = () => {
             createdWallpaperIds.push(uniqueId);
             continue;
           }
-
-          // Handle Apple based on selection type
-          if (brand === 'Apple' && form.appleSelectionType === 'iosVersions') {
-            // For iOS versions, create a single wallpaper with iOS version info
-            const launchYearValue = form.launchYear ? parseInt(form.launchYear, 10) : '';
-            
-            const brandWallpaperData: any = {
-              wallpaperName: form.wallpaperName,
-              imageUrl: form.imageUrl,
-              thumbnail: getUrlWithL(form.imageUrl),
-              series: form.selectedIosVersion || 'iOS Version',
-              launchYear: launchYearValue,
-              iosVersion: form.selectedIosVersion,
-              views: 0,
-              downloads: 0
-            };
-            
-            const iosUniqueId = `${uniqueId}-${form.selectedIosVersion}`;
-            await addBrandWallpaperWithId(brand, iosUniqueId, brandWallpaperData);
-            createdWallpaperIds.push(iosUniqueId); // Track the iOS wallpaper ID
-          } else if (devices[brand] && form.selectedDeviceSeries.length > 0) {
-            // For device series (Apple with devices selected, or other brands)
-            for (const deviceSeries of form.selectedDeviceSeries) {
-              const launchYearValue = (brand === 'Samsung' || brand === 'Apple' || brand === 'OnePlus' || brand === 'Xiaomi') && form.launchYear
-                ? parseInt(form.launchYear, 10)
-                : form.launchYear || '';
-              
-              const brandWallpaperData: any = {
-                wallpaperName: form.wallpaperName,
-                imageUrl: form.imageUrl,
-                thumbnail: getUrlWithL(form.imageUrl),
-                series: deviceSeries,
-                launchYear: launchYearValue,
-                views: 0,
-                downloads: 0
-              };
-              
-              const deviceUniqueId = `${uniqueId}-${deviceSeries}`;
-              await addBrandWallpaperWithId(brand, deviceUniqueId, brandWallpaperData);
-              createdWallpaperIds.push(deviceUniqueId); // Track the device wallpaper ID
-            }
-          } else {
-            const launchYearValue = (brand === 'Samsung' || brand === 'Apple' || brand === 'OnePlus') && form.launchYear
-              ? parseInt(form.launchYear, 10)
-              : form.launchYear || '';
-              
-            const brandWallpaperData = {
-              wallpaperName: form.wallpaperName,
-              imageUrl: form.imageUrl,
-              thumbnail: getUrlWithL(form.imageUrl),
-              series: form.series || 'Default Series',
-              launchYear: launchYearValue,
-              views: 0,
-              downloads: 0
-            };
-            
-            const brandUniqueId = `${uniqueId}-${brand}`;
-            await addBrandWallpaperWithId(brand, brandUniqueId, brandWallpaperData);
-            createdWallpaperIds.push(brandUniqueId); // Track the brand wallpaper ID
-          }
         }
         
-        // Handle banner creation with custom structure
-        if (form.addAsBanner && form.selectedBrandApp && form.subcollectionName && createdWallpaperIds.length > 0) {
-          const brandApp = form.selectedBrandApp === 'custom' ? form.customBrandApp : form.selectedBrandApp;
-
-          if (!brandApp || brandApp.trim() === '') {
-            toast.error('Please provide a brand app name for banner creation');
-            continue;
-          }
-
-          const isAppPromo = form.bannerType === 'app_promo';
-          const bannerData = {
-            bannerName: isAppPromo ? (form.appPromoName || form.wallpaperName) : form.wallpaperName,
-            bannerUrl: isAppPromo ? form.appPromoUrl : form.imageUrl,
-            bannerType: form.bannerType || 'wallpaper',
+        // Home hero carousel → BannersiOS / BannersAndroid
+        if (form.addAsBanner && createdWallpaperIds.length > 0) {
+          const platforms = form.bannerPlatforms?.length ? form.bannerPlatforms : ['ios'];
+          const collectionByPlatform: Record<BannerPlatform, string> = {
+            ios: BANNERS_IOS_COLLECTION,
+            android: BANNERS_ANDROID_COLLECTION,
           };
 
-          for (const wallpaperId of createdWallpaperIds) {
-            await addBannerWithCustomStructure(
-              brandApp,
-              form.subcollectionName,
-              wallpaperId,
-              bannerData
-            );
+          for (const platform of platforms) {
+            const collectionName = collectionByPlatform[platform];
+            for (const wallpaperId of createdWallpaperIds) {
+              await addPlatformBannerWithId(collectionName, wallpaperId, {
+                bannerName: form.wallpaperName,
+                bannerUrl: form.imageUrl,
+                bannerType: 'wallpaper',
+              });
+            }
           }
         }
         
@@ -1045,7 +842,7 @@ const AddWallpaperForm: React.FC = () => {
           await new Promise(resolve => setTimeout(resolve, 100));
         }
       }
-      
+
       setUploadProgress(100);
       toast.success(`Successfully added ${formsToProcess.length} wallpaper(s) to Firebase!`);
       
@@ -1081,15 +878,11 @@ const AddWallpaperForm: React.FC = () => {
   };
   
   const getSelectedMainCategory = (form: WallpaperForm) => {
-    return form.selectedCategories.find(cat =>
-      categories.find(c => c.categoryName === cat && c.categoryType === 'main')
-    ) || '';
+    return form.selectedCategories.find(cat => isStyleCategory(cat)) || '';
   };
 
   const getSelectedBrandCategory = (form: WallpaperForm) => {
-    return form.selectedCategories.find(cat =>
-      categories.find(c => c.categoryName === cat && c.categoryType === 'brand')
-    ) || '';
+    return form.selectedCategories.find(cat => isBrandCategory(cat)) || WALLEZ_BRAND_NAME;
   };
   
   return (
@@ -1151,13 +944,11 @@ const AddWallpaperForm: React.FC = () => {
           form={form}
           index={index}
           categories={categories}
-          devices={devices}
           showRemoveButton={wallpaperForms.length > 1}
           onRemove={() => handleRemoveWallpaperForm(index)}
           onFieldChange={(field, value) => handleChange(index, field, value)}
-          onCategoryChange={(categoryType, categoryName) => handleCategoryChange(index, categoryType, categoryName)}
+          onCategoryChange={(categoryName) => handleCategoryChange(index, categoryName)}
           onRemoveCategory={(category) => handleRemoveCategory(index, category)}
-          onAddCategoryClick={() => setCategoryDialogOpen(true)}
           onDeviceSeriesChange={(brand, deviceSeries, checked) => 
             handleDeviceSeriesChange(index, brand, deviceSeries, checked)
           }
@@ -1169,15 +960,14 @@ const AddWallpaperForm: React.FC = () => {
           onClearUploads={index === 0 ? setClearUploadsFunction : undefined}
           onThumbnailLoad={() => setThumbnailsLoaded(prev => prev + 1)}
           onThumbnailError={() => setThumbnailsFailed(prev => prev + 1)}
+          dimensions={form.dimensions}
+          fileSize={form.fileSize}
+          tags={form.tags}
+          colors={form.colors}
           selectedCategory={
-            getSelectedBrandCategory(form) || getSelectedMainCategory(form) || form.selectedCategories[0] || ''
+            getSelectedMainCategory(form) || form.category || ''
           }
-          selectedSubcategory={
-            // For Samsung, Apple, OnePlus, and Xiaomi (brand categories), use the selected device series for S3 path
-            (getSelectedBrandCategory(form) === 'Samsung' || getSelectedBrandCategory(form) === 'Apple' || getSelectedBrandCategory(form) === 'OnePlus' || getSelectedBrandCategory(form) === 'Xiaomi') && form.series
-              ? form.series
-              : form.subCategory
-          }
+          selectedSubcategory={form.subCategory}
           totalWallpapers={wallpaperForms.length}
         />
       ))}
@@ -1208,16 +998,6 @@ const AddWallpaperForm: React.FC = () => {
       )}
       
       <SubmitButton loading={loading} />
-      
-      <CategoryDialog 
-        open={categoryDialogOpen}
-        onOpenChange={setCategoryDialogOpen}
-        onCategoriesUpdated={() => {
-          getCategories().then(categoriesData => {
-            setCategories(categoriesData);
-          });
-        }}
-      />
       
       {showProgressOverlay && (
         <div className="fixed inset-0 bg-black/50 flex items-end sm:items-center justify-center z-50 p-4">

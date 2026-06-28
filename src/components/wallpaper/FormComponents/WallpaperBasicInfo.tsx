@@ -6,10 +6,19 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Progress } from '@/components/ui/progress';
-import { Upload, Cloud, CheckCircle, SkipForward, X, Loader2, Sparkles } from 'lucide-react';
+import { Upload, Cloud, CheckCircle, SkipForward, X, Loader2, Sparkles, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { DragDropZone } from '@/components/ui/drag-drop-zone';
-import BannerAppSelector from '@/components/BannerAppSelector';
+import { getWallezUploadDirectory, S3_WALLEZ_ROOT } from '@/lib/storagePaths';
+import { BannerPlatform } from '@/lib/wallezCategories';
+import {
+  analyzeImageFile,
+  firestoreColorToCss,
+  formatUploadSize,
+  normalizeFirestoreColor,
+  normalizeFirestoreTags,
+  UploadedWallpaperPayload,
+} from '@/lib/imageMetadata';
 
 // Progressive Image Loading Component to prevent CloudFront rate limiting
 interface ProgressiveImageProps {
@@ -155,6 +164,8 @@ interface UploadProgress {
   progress: number;
   status: 'uploading' | 'completed' | 'error' | 'skipped';
   error?: string;
+  dimensions?: string;
+  fileSize?: string;
 }
 
 interface WallpaperBasicInfoProps {
@@ -164,6 +175,7 @@ interface WallpaperBasicInfoProps {
   source: string;
   exclusive: boolean;
   addAsBanner: boolean;
+  bannerPlatforms: BannerPlatform[];
   bannerApps: string[];
   selectedBrandApp: string;
   customBrandApp: string;
@@ -180,8 +192,12 @@ interface WallpaperBasicInfoProps {
   launchYear?: string;
   showLaunchYear?: boolean;
   totalWallpapers?: number;
+  dimensions?: string;
+  fileSize?: string;
+  tags?: string[];
+  colors?: string[];
   onChange: (field: string, value: any) => void;
-  onAddMultipleWallpapers?: (urls: string[]) => void;
+  onAddMultipleWallpapers?: (payloads: UploadedWallpaperPayload[]) => void;
   onClearUploads?: (clearFn: () => void) => void;
   selectedCategory?: string;
   selectedSubcategory?: string;
@@ -196,6 +212,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
   source,
   exclusive,
   addAsBanner,
+  bannerPlatforms,
   bannerApps,
   selectedBrandApp,
   customBrandApp,
@@ -212,6 +229,10 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
   launchYear = '',
   showLaunchYear = false,
   totalWallpapers = 1,
+  dimensions = '',
+  fileSize = '',
+  tags = [],
+  colors = [],
   onChange,
   onAddMultipleWallpapers,
   onClearUploads,
@@ -228,14 +249,70 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
 
   // AI generation state
   const [generatingAiName, setGeneratingAiName] = useState(false);
+  const [addingTag, setAddingTag] = useState(false);
+  const [newTagInput, setNewTagInput] = useState('');
+  const [addingColor, setAddingColor] = useState(false);
+  const [newColorInput, setNewColorInput] = useState('');
 
-  // Simple clear function - will be called directly by parent
-  const clearUploads = React.useCallback(() => {
+  const removeTag = (tag: string) => {
+    onChange('tags', tags.filter((t) => t !== tag));
+  };
+
+  const commitNewTag = () => {
+    const trimmed = newTagInput.trim().toLowerCase();
+    if (!trimmed) {
+      setAddingTag(false);
+      setNewTagInput('');
+      return;
+    }
+    if (tags.includes(trimmed)) {
+      toast.info('Tag already added');
+      return;
+    }
+    if (tags.length >= 8) {
+      toast.error('Maximum 8 tags');
+      return;
+    }
+    const next = normalizeFirestoreTags([...tags, trimmed]);
+    onChange('tags', next);
+    setNewTagInput('');
+    setAddingTag(false);
+  };
+
+  const removeColor = (color: string) => {
+    onChange('colors', colors.filter((c) => c !== color));
+  };
+
+  const commitNewColor = () => {
+    const canonical = normalizeFirestoreColor(newColorInput);
+    if (!canonical) {
+      toast.error('Use hex like #FF5733 or 0xFFFF5733');
+      return;
+    }
+    if (colors.includes(canonical)) {
+      toast.info('Color already added');
+      return;
+    }
+    if (colors.length >= 6) {
+      toast.error('Maximum 6 colors');
+      return;
+    }
+    onChange('colors', [...colors, canonical]);
+    setNewColorInput('');
+    setAddingColor(false);
+  };
+
+  const clearSelectedFiles = React.useCallback(() => {
     setFiles([]);
     setUploadProgress([]);
     setCompletedUploads(0);
-    setUploading(false);
   }, []);
+
+  // Simple clear function - will be called directly by parent
+  const clearUploads = React.useCallback(() => {
+    clearSelectedFiles();
+    setUploading(false);
+  }, [clearSelectedFiles]);
 
   // Expose clear function to parent via callback ref pattern
   React.useEffect(() => {
@@ -445,57 +522,9 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
   };
 
   const getUploadDirectory = () => {
-    if (!selectedCategory) {
-      return 'wallpapers';
-    }
-    
-    // Helper function to convert series name to S3-safe path
-    const formatSeriesPath = (seriesName: string): string => {
-      return seriesName.toLowerCase()
-        .replace(/[&]/g, 'and')
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .replace(/^-|-$/g, '');
-    };
-    
-    // Map category names to S3 paths (using actual category names from the form)
-    const categoryPaths: { [key: string]: string } = {
-      // Main categories
-      '4K & Ultra HD': 'wallpapers/4k-ultra-hd',
-      'Amoled & Dark': 'wallpapers/amoled-dark',
-      'Depth Effect': 'wallpapers/depth-effect',
-      'Fandoms': selectedSubcategory ? `wallpapers/fandoms/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/fandoms',
-      'Minimal & Aesthetic': selectedSubcategory ? `wallpapers/minimal-aesthetic/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/minimal-aesthetic',
-      'Nature & Landscapes': selectedSubcategory ? `wallpapers/nature-landscapes/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/nature-landscapes',
-      
-      // Brand categories (these come from the form)
-      // For Samsung, always include the series subdirectory when selectedSubcategory is available
-      'Samsung': selectedSubcategory ? `wallpapers/samsung/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/samsung',
-      'Apple': selectedSubcategory ? `wallpapers/apple/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/apple',
-      'OnePlus': selectedSubcategory ? `wallpapers/oneplus/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/oneplus',
-      'Xiaomi': selectedSubcategory ? `wallpapers/xiaomi/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/xiaomi',
-      'Google': selectedSubcategory ? `wallpapers/google/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/google',
-      
-      // Fallback for any other category names
-      '4K Ultra HD': 'wallpapers/4k-ultra-hd',
-      'Amoled Dark': 'wallpapers/amoled-dark',
-      'Minimal Aesthetic': selectedSubcategory ? `wallpapers/minimal-aesthetic/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/minimal-aesthetic',
-      'Nature Landscapes': selectedSubcategory ? `wallpapers/nature-landscapes/${formatSeriesPath(selectedSubcategory)}` : 'wallpapers/nature-landscapes'
-    };
-    
-    // Add comprehensive debug logging
-    console.log('=== UPLOAD DIRECTORY DEBUG ===');
-    console.log('selectedCategory:', selectedCategory);
-    console.log('selectedSubcategory:', selectedSubcategory);
-    console.log('categoryPaths keys:', Object.keys(categoryPaths));
-    console.log('Exact match for selectedCategory:', categoryPaths[selectedCategory]);
-    
-    const result = categoryPaths[selectedCategory] || 'wallpapers';
-    console.log('Final generated S3 path:', result);
-    console.log('=== END UPLOAD DIRECTORY DEBUG ===');
-    
-    return result;
+    const dir = getWallezUploadDirectory(selectedCategory, selectedSubcategory);
+    console.log('Wallez S3 upload path:', dir);
+    return dir;
   };
 
   const removeFile = (index: number) => {
@@ -530,10 +559,10 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
     }
   };
 
-  const uploadSingleFile = async (file: File, index: number): Promise<string | null> => {
+  const uploadSingleFile = async (file: File, index: number): Promise<UploadedWallpaperPayload | null> => {
     // Check if we have the required category info
     if (!selectedCategory) {
-      const error = 'No category selected. Please select a category in the form below first.';
+      const error = `No style category selected. Choose a category (e.g. Glass) — uploads go to ${S3_WALLEZ_ROOT}/`;
       console.error(error);
       toast.error(error);
       throw new Error(error);
@@ -562,6 +591,37 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
     }
     
     const dir = getUploadDirectory();
+
+    let analysis;
+    try {
+      analysis = await analyzeImageFile(file, {
+        mainCategory: selectedCategory,
+        subCategory: selectedSubcategory,
+        wallpaperName,
+        filename: file.name,
+      });
+      setUploadProgress(prev => {
+        const newProgress = [...prev];
+        newProgress[index] = {
+          ...newProgress[index],
+          fileName: file.name,
+          dimensions: analysis.dimensions,
+          fileSize: analysis.fileSize,
+        };
+        return newProgress;
+      });
+    } catch (analysisError) {
+      console.warn('Image analysis failed, continuing upload:', analysisError);
+      analysis = {
+        width: 0,
+        height: 0,
+        dimensions: '',
+        fileSizeBytes: file.size,
+        fileSize: formatUploadSize(file.size),
+        tags: [] as string[],
+        colors: [] as string[],
+      };
+    }
     
     try {
       // Update progress to show starting
@@ -609,7 +669,14 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
         setCompletedUploads(prev => prev + 1);
         toast.info(`Skipped "${file.name}" — already exists`);
         
-        return response.publicUrl; // Return existing URL
+        return {
+          url: response.publicUrl,
+          dimensions: analysis.dimensions,
+          fileSize: analysis.fileSize,
+          fileSizeBytes: analysis.fileSizeBytes,
+          tags: analysis.tags,
+          colors: analysis.colors,
+        };
       }
       
       console.log(`🆕 File ${file.name} does not exist, proceeding with upload`);
@@ -645,7 +712,9 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
               newProgress[index] = {
                 fileName: file.name,
                 progress: 100,
-                status: 'completed'
+                status: 'completed',
+                dimensions: analysis.dimensions,
+                fileSize: analysis.fileSize,
               };
               return newProgress;
             });
@@ -671,7 +740,14 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
               }
             }, 2000); // Wait 2 seconds for S3/CloudFront propagation
             
-            resolve(response.publicUrl);
+            resolve({
+              url: response.publicUrl,
+              dimensions: analysis.dimensions,
+              fileSize: analysis.fileSize,
+              fileSizeBytes: analysis.fileSizeBytes,
+              tags: analysis.tags,
+              colors: analysis.colors,
+            });
           } else {
             console.error(`❌ S3 Upload FAILED for ${file.name}:`, {
               status: xhr.status,
@@ -737,7 +813,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
       
       console.log(`🚀 Starting S3 upload of ${files.length} files in ${batches.length} batches (max ${BATCH_SIZE} files per batch)`);
       
-      const uploadedUrls: string[] = [];
+      const uploadedPayloads: UploadedWallpaperPayload[] = [];
       
       // Process each batch sequentially, files within batch concurrently
       for (let batchIndex = 0; batchIndex < batches.length; batchIndex++) {
@@ -749,10 +825,10 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
           const globalIndex = batchIndex * BATCH_SIZE + indexInBatch;
           
           try {
-            const url = await uploadSingleFile(file, globalIndex);
-            if (url) {
+            const payload = await uploadSingleFile(file, globalIndex);
+            if (payload) {
               setCompletedUploads(prev => prev + 1);
-              return url;
+              return payload;
             }
             return null;
           } catch (error) {
@@ -768,7 +844,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
         // Add successful uploads to the array
         batchResults.forEach((result) => {
           if (result.status === 'fulfilled' && result.value) {
-            uploadedUrls.push(result.value);
+            uploadedPayloads.push(result.value);
           }
         });
         
@@ -781,29 +857,31 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
       }
 
       // Report results
-      const failedUploads = files.length - uploadedUrls.length;
+      const failedUploads = files.length - uploadedPayloads.length;
       
-      if (uploadedUrls.length > 0 && onAddMultipleWallpapers) {
-        onAddMultipleWallpapers(uploadedUrls);
+      if (uploadedPayloads.length > 0 && onAddMultipleWallpapers) {
+        onAddMultipleWallpapers(uploadedPayloads);
         if (failedUploads > 0) {
-          toast.success(`✅ ${uploadedUrls.length} of ${files.length} images uploaded successfully! ${failedUploads} failed.`);
+          toast.success(`✅ ${uploadedPayloads.length} of ${files.length} images uploaded successfully! ${failedUploads} failed.`);
         } else {
-          toast.success(`✅ All ${uploadedUrls.length} images uploaded successfully! Wallpaper forms created.`);
+          toast.success(`✅ All ${uploadedPayloads.length} images uploaded successfully! Wallpaper forms created.`);
         }
-      } else if (uploadedUrls.length > 0 && !imageUrl) {
-        // Fallback: auto-fill the first image URL if callback not available
-        onChange('imageUrl', uploadedUrls[0]);
-        toast.success(`✅ ${uploadedUrls.length} images uploaded! First URL auto-filled.`);
-      } else if (uploadedUrls.length > 0) {
-        toast.success(`✅ ${uploadedUrls.length} images uploaded successfully!`);
+      } else if (uploadedPayloads.length > 0 && !imageUrl) {
+        const first = uploadedPayloads[0];
+        onChange('imageUrl', first.url);
+        onChange('dimensions', first.dimensions);
+        onChange('fileSize', first.fileSize);
+        onChange('tags', first.tags);
+        onChange('colors', first.colors);
+        toast.success(`✅ ${uploadedPayloads.length} images uploaded! First URL auto-filled.`);
+      } else if (uploadedPayloads.length > 0) {
+        toast.success(`✅ ${uploadedPayloads.length} images uploaded successfully!`);
       } else {
         toast.error('No images were uploaded successfully. Please check the errors above.');
       }
       
       // Clear files after successful upload
-      setFiles([]);
-      setUploadProgress([]);
-      setCompletedUploads(0);
+      clearSelectedFiles();
       
     } catch (e: any) {
       console.error('Upload error:', e);
@@ -831,9 +909,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
   };
 
   const resetUpload = () => {
-    setFiles([]);
-    setUploadProgress([]);
-    setCompletedUploads(0);
+    clearSelectedFiles();
     setUploading(false);
   };
 
@@ -873,6 +949,9 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
         <div className="space-y-3">
           <Label className="text-sm font-medium">Select Images</Label>
           <DragDropZone
+            selectedFiles={files}
+            onClearSelection={clearSelectedFiles}
+            onRemoveFile={removeFile}
             onFilesSelected={(newFiles) => {
               const uniqueFiles = newFiles.filter((newFile) =>
                 !files.some(existingFile =>
@@ -906,7 +985,7 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
                 type="button"
                 variant="outline"
                 size="sm"
-                onClick={() => setFiles([])}
+                onClick={clearSelectedFiles}
                 disabled={uploading}
                 className="text-xs"
               >
@@ -962,6 +1041,11 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
                         </span>
                       </div>
                     </div>
+                    {(progress.dimensions || progress.fileSize) && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {[progress.dimensions, progress.fileSize].filter(Boolean).join(' · ')}
+                      </p>
+                    )}
                     <Progress 
                       value={progress.progress} 
                       className={`w-full h-1 ${
@@ -1105,6 +1189,131 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
               className="mt-1"
             />
           </div>
+
+          {(imageUrl || dimensions || fileSize || tags.length > 0 || colors.length > 0) && (
+            <div className="rounded-md border bg-muted/30 p-3 space-y-3">
+              <p className="text-xs font-medium text-muted-foreground">Auto-detected metadata</p>
+              <p className="text-xs text-muted-foreground">
+                Search tokens are built automatically on save from name, categories, and tags.
+              </p>
+              {(dimensions || fileSize) && (
+                <p className="text-sm">
+                  {[dimensions, fileSize].filter(Boolean).join(' · ')}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2 items-start">
+                <span className="text-xs text-muted-foreground w-12 shrink-0 pt-1.5">Tags:</span>
+                <div className="flex flex-wrap gap-1.5 flex-1 items-center">
+                  {tags.map((tag) => (
+                    <span
+                      key={tag}
+                      className="inline-flex items-center gap-1 text-xs pl-2 pr-1 py-1 rounded-full bg-primary/10 text-primary border border-primary/20"
+                    >
+                      {tag}
+                      <button
+                        type="button"
+                        onClick={() => removeTag(tag)}
+                        className="rounded-full p-0.5 hover:bg-primary/20 text-primary/80 hover:text-primary"
+                        aria-label={`Remove tag ${tag}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </button>
+                    </span>
+                  ))}
+                  {addingTag ? (
+                    <Input
+                      autoFocus
+                      value={newTagInput}
+                      onChange={(e) => setNewTagInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitNewTag();
+                        } else if (e.key === 'Escape') {
+                          setAddingTag(false);
+                          setNewTagInput('');
+                        }
+                      }}
+                      onBlur={commitNewTag}
+                      placeholder="tag name"
+                      className="h-7 w-28 text-xs"
+                    />
+                  ) : (
+                    tags.length < 8 && (
+                      <button
+                        type="button"
+                        onClick={() => setAddingTag(true)}
+                        className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/10"
+                        aria-label="Add tag"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-2 items-start">
+                <span className="text-xs text-muted-foreground w-12 shrink-0 pt-1.5">Colors:</span>
+                <div className="flex flex-wrap gap-2 flex-1 items-center">
+                  {colors.map((color) => (
+                    <span
+                      key={color}
+                      className="inline-flex flex-col items-center gap-0.5 relative group"
+                      title={color}
+                    >
+                      <span className="relative">
+                        <span
+                          className="inline-block h-7 w-7 rounded-full border-2 border-border shadow-sm"
+                          style={{ backgroundColor: firestoreColorToCss(color) }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeColor(color)}
+                          className="absolute -top-1 -right-1 rounded-full bg-background border border-border p-0.5 shadow-sm opacity-90 hover:opacity-100"
+                          aria-label={`Remove color ${color}`}
+                        >
+                          <X className="h-2.5 w-2.5 text-muted-foreground" />
+                        </button>
+                      </span>
+                      <span className="text-[10px] text-muted-foreground font-mono">
+                        {firestoreColorToCss(color)}
+                      </span>
+                    </span>
+                  ))}
+                  {addingColor ? (
+                    <Input
+                      autoFocus
+                      value={newColorInput}
+                      onChange={(e) => setNewColorInput(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter') {
+                          e.preventDefault();
+                          commitNewColor();
+                        } else if (e.key === 'Escape') {
+                          setAddingColor(false);
+                          setNewColorInput('');
+                        }
+                      }}
+                      onBlur={commitNewColor}
+                      placeholder="#RRGGBB"
+                      className="h-7 w-24 text-xs font-mono"
+                    />
+                  ) : (
+                    colors.length < 6 && (
+                      <button
+                        type="button"
+                        onClick={() => setAddingColor(true)}
+                        className="inline-flex items-center justify-center h-7 w-7 rounded-full border border-dashed border-primary/40 text-primary hover:bg-primary/10 self-center"
+                        aria-label="Add color"
+                      >
+                        <Plus className="h-3.5 w-3.5" />
+                      </button>
+                    )
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
           
           <div>
             <Label htmlFor={`wallpaperName-${index}`}>Wallpaper Name</Label>
@@ -1175,44 +1384,6 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
                   />
                   <Label htmlFor={`sameWallpaperName-${index}`} className="text-sm text-gray-600">
                     Use series name as wallpaper name ({selectedSubcategory})
-                  </Label>
-                </div>
-              )}
-              
-              {/* Same wallpaper name checkbox - only show for first wallpaper */}
-              {index === 0 && (
-                <div className="flex items-center space-x-2 mt-2">
-                  <Checkbox
-                    id={`sameWallpaperNameAll-${index}`}
-                    checked={sameWallpaperName}
-                    onCheckedChange={(checked) => {
-                      onChange('sameWallpaperName', checked === true);
-                      if (checked) {
-                        toast.info('📝 All wallpapers will use the same wallpaper name');
-                      }
-                    }}
-                  />
-                  <Label htmlFor={`sameWallpaperNameAll-${index}`} className="text-sm text-gray-600">
-                    Same wallpaper name in all wallpapers
-                  </Label>
-                </div>
-              )}
-
-              {/* Same wallpaper name for below items checkbox - show for all except last wallpaper */}
-              {index < totalWallpapers - 1 && (
-                <div className="flex items-center space-x-2 mt-2">
-                  <Checkbox
-                    id={`sameWallpaperNameBelow-${index}`}
-                    checked={sameWallpaperNameBelow}
-                    onCheckedChange={(checked) => {
-                      onChange('sameWallpaperNameBelow', checked === true);
-                      if (checked) {
-                        toast.info(`📝 Wallpapers ${index + 2} to ${totalWallpapers} will use the same wallpaper name as this one`);
-                      }
-                    }}
-                  />
-                  <Label htmlFor={`sameWallpaperNameBelow-${index}`} className="text-sm text-gray-600">
-                    Same wallpaper name for below items
                   </Label>
                 </div>
               )}
@@ -1301,30 +1472,54 @@ const WallpaperBasicInfo: React.FC<WallpaperBasicInfoProps> = ({
               <Checkbox
                 id={`addAsBanner-${index}`}
                 checked={addAsBanner}
-                onCheckedChange={(checked) => 
-                  onChange('addAsBanner', checked === true)
-                }
+                onCheckedChange={(checked) => {
+                  const enabled = checked === true;
+                  onChange('addAsBanner', enabled);
+                  if (enabled && (!bannerPlatforms || bannerPlatforms.length === 0)) {
+                    onChange('bannerPlatforms', ['ios']);
+                  }
+                }}
               />
               <Label htmlFor={`addAsBanner-${index}`}>Add as Banner</Label>
             </div>
-            
-            {/* Banner App Configuration - only show when addAsBanner is true */}
+
             {addAsBanner && (
-              <div className="w-full mt-2">
-                <BannerAppSelector
-                  selectedBrandApp={selectedBrandApp}
-                  customBrandApp={customBrandApp}
-                  subcollectionName={subcollectionName}
-                  bannerType={bannerType}
-                  appPromoName={appPromoName}
-                  appPromoUrl={appPromoUrl}
-                  onBrandAppChange={(brandApp) => onChange('selectedBrandApp', brandApp)}
-                  onCustomBrandAppChange={(customApp) => onChange('customBrandApp', customApp)}
-                  onSubcollectionNameChange={(name) => onChange('subcollectionName', name)}
-                  onBannerTypeChange={(type) => onChange('bannerType', type)}
-                  onAppPromoNameChange={(name) => onChange('appPromoName', name)}
-                  onAppPromoUrlChange={(url) => onChange('appPromoUrl', url)}
-                />
+              <div className="w-full basis-full rounded-lg border border-blue-200 dark:border-blue-800 bg-blue-50/80 dark:bg-blue-950/30 p-3 space-y-2">
+                <p className="text-xs font-medium text-blue-900 dark:text-blue-100">
+                  Banner platform
+                </p>
+                <div className="flex flex-wrap gap-4">
+                  {(
+                    [
+                      { id: 'ios' as BannerPlatform, label: 'iOS (BannersiOS)' },
+                      { id: 'android' as BannerPlatform, label: 'Android (BannersAndroid)' },
+                    ] as const
+                  ).map(({ id, label }) => {
+                    const checked = bannerPlatforms?.includes(id) ?? false;
+                    return (
+                      <div key={id} className="flex items-center space-x-2">
+                        <Checkbox
+                          id={`bannerPlatform-${id}-${index}`}
+                          checked={checked}
+                          onCheckedChange={(isChecked) => {
+                            const current = bannerPlatforms ?? [];
+                            const next = isChecked === true
+                              ? [...new Set([...current, id])]
+                              : current.filter((p) => p !== id);
+                            onChange('bannerPlatforms', next);
+                          }}
+                        />
+                        <Label htmlFor={`bannerPlatform-${id}-${index}`} className="text-sm font-normal">
+                          {label}
+                        </Label>
+                      </div>
+                    );
+                  })}
+                </div>
+                <p className="text-[11px] text-muted-foreground">
+                  Pick one or both. Manage order under{' '}
+                  <span className="font-medium">Categories → Home carousel</span>.
+                </p>
               </div>
             )}
             

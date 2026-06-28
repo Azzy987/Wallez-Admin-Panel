@@ -11,7 +11,7 @@ import { AspectRatio } from "@/components/ui/aspect-ratio";
 export interface Wallpaper {
   id: string;
   data: {
-    [key: string]: any;
+    [key: string]: unknown;
     imageUrl: string;
     wallpaperName: string;
     thumbnailUrl?: string;
@@ -21,7 +21,7 @@ export interface Wallpaper {
     downloads?: number;
     category?: string;
     selectedCategories?: string[];
-    timestamp?: any;
+    timestamp?: unknown;
   };
 }
 
@@ -96,7 +96,7 @@ const WallpaperGrid: React.FC<WallpaperGridProps> = ({
     }
   };
 
-  const handleWallpaperUpdated = (updatedWallpaper?: any) => {
+  const handleWallpaperUpdated = (updatedWallpaper?: Wallpaper['data']) => {
     if (onWallpaperUpdated) {
       const updatedWallpapers = wallpapers.map(wp => 
         wp.id === selectedWallpaper?.id 
@@ -108,28 +108,57 @@ const WallpaperGrid: React.FC<WallpaperGridProps> = ({
     toast.success("Wallpaper updated successfully");
   };
 
+  const toThumbnailUrl = (url?: string) => {
+    if (!url) return undefined;
+
+    try {
+      if (url.includes('d1wqpnbk3wcub7.cloudfront.net')) {
+        if (url.includes('/fit-in/')) {
+          return url.replace(/\/fit-in\/(?:\{w\}x\{h\}|\d+x\d+)\//, '/fit-in/240x426/');
+        }
+
+        const baseUrl = 'https://d1wqpnbk3wcub7.cloudfront.net';
+        const pathIndex = url.indexOf('cloudfront.net/') + 'cloudfront.net/'.length;
+        const imagePath = url.substring(pathIndex);
+        return `${baseUrl}/fit-in/240x426/${imagePath}`;
+      }
+
+      return url;
+    } catch (error) {
+      console.error('Error generating thumbnail URL:', error);
+      return url;
+    }
+  };
+
   const getThumbnailUrl = (wallpaper: Wallpaper) => {
     if (useThumbnails) {
-      if (wallpaper.data.thumbnail) {
-        return wallpaper.data.thumbnail;
+      const storedThumbnail = toThumbnailUrl(wallpaper.data.thumbnailUrl || wallpaper.data.thumbnail);
+      if (storedThumbnail) return storedThumbnail;
+
+      const generatedThumbnail = toThumbnailUrl(wallpaper.data.imageUrl);
+      if (generatedThumbnail && generatedThumbnail !== wallpaper.data.imageUrl) {
+        return generatedThumbnail;
       }
-      
-      if (wallpaper.data.thumbnailUrl) {
-        return wallpaper.data.thumbnailUrl;
-      }
-      
+
       const imageUrl = wallpaper.data.imageUrl;
       const lastDotIndex = imageUrl.lastIndexOf('.');
       if (lastDotIndex !== -1) {
         return `${imageUrl.substring(0, lastDotIndex)}l${imageUrl.substring(lastDotIndex)}`;
       }
+      return imageUrl;
     }
     
     return wallpaper.data.imageUrl;
   };
 
   const renderWallpaperGrid = (wallpaperList: Wallpaper[]) => {
-    const gridClass = `grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-${gridColumns} gap-4`;
+    const gridClassByColumns: Record<number, string> = {
+      3: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-4',
+      4: 'grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4',
+      5: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3',
+      6: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3',
+    };
+    const gridClass = gridClassByColumns[gridColumns] ?? gridClassByColumns[3];
     const isEditWallpaperSection = window.location.pathname.includes('edit-wallpaper');
     
     return (

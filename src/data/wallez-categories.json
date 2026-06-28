@@ -1,0 +1,80 @@
+{
+  "categories": [
+    {
+      "name": "Anime",
+      "thumbnail": "https://d1wqpnbk3wcub7.cloudfront.net/fit-in/360x640/wallez/categories/anime-360x640-1780947502906.png",
+      "sortOrder": 0
+    },
+    {
+      "name": "Gaming",
+      "thumbnail": "https://d1wqpnbk3wcub7.cloudfront.net/fit-in/468x832/wallez/categories/gaming-468x832-1780947528826.png",
+      "sortOrder": 1
+    },
+    {
+      "name": "Movies & TV",
+      "thumbnail": "",
+      "sortOrder": 2
+    },
+    {
+      "name": "Superheroes",
+      "thumbnail": "",
+      "sortOrder": 3
+    },
+    {
+      "name": "Sci-Fi & Fantasy",
+      "thumbnail": "",
+      "sortOrder": 4
+    },
+    {
+      "name": "Cute",
+      "thumbnail": "https://d1wqpnbk3wcub7.cloudfront.net/fit-in/360x640/wallez/categories/cute-360x640-1781445213582.png",
+      "sortOrder": 5
+    },
+    {
+      "name": "Minimal",
+      "thumbnail": "",
+      "sortOrder": 6
+    },
+    {
+      "name": "Liquid Glass",
+      "thumbnail": "https://d1wqpnbk3wcub7.cloudfront.net/fit-in/360x640/wallez/categories/liquid-glass-360x640-1781445251326.png",
+      "sortOrder": 7
+    },
+    {
+      "name": "Pastel Aesthetic",
+      "thumbnail": "",
+      "sortOrder": 8
+    },
+    {
+      "name": "Cozy Vibes",
+      "thumbnail": "",
+      "sortOrder": 9
+    },
+    {
+      "name": "Wild World",
+      "thumbnail": "",
+      "sortOrder": 10
+    },
+    {
+      "name": "Space & Cosmos",
+      "thumbnail": "",
+      "sortOrder": 11
+    },
+    {
+      "name": "AMOLED & Dark",
+      "thumbnail": "",
+      "sortOrder": 12
+    },
+    {
+      "name": "Depth Effect",
+      "thumbnail": "",
+      "sortOrder": 13
+    },
+    {
+      "name": "Motivational",
+      "thumbnail": "",
+      "sortOrder": 14
+    }
+  ],
+  "updatedAt": "2026-06-14T13:54:17.001Z"
+}

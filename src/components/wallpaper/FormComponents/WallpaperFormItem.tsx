@@ -1,13 +1,15 @@
 
-import React, { useState } from 'react';
+import React from 'react';
 import { Button } from '@/components/ui/button';
 import { Trash2 } from 'lucide-react';
 import WallpaperBasicInfo from './WallpaperBasicInfo';
 import CategorySelector from './CategorySelector';
-import DeviceSelector from './DeviceSelector';
-import { Category, Device } from '@/lib/firebase';
+import { Category } from '@/lib/firebase';
+import { BannerPlatform } from '@/lib/wallezCategories';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 import { useIsMobile } from '@/hooks/use-mobile';
+import { UploadedWallpaperPayload } from '@/lib/imageMetadata';
 
 interface WallpaperForm {
   imageUrl: string;
@@ -15,6 +17,7 @@ interface WallpaperForm {
   source: string;
   exclusive: boolean;
   addAsBanner: boolean;
+  bannerPlatforms: BannerPlatform[];
   bannerApps: string[];
   selectedBrandApp: string;
   customBrandApp: string;
@@ -36,25 +39,31 @@ interface WallpaperForm {
   sameWallpaperName?: boolean;
   sameWallpaperNameBelow?: boolean;
   sameLaunchYear?: boolean;
+  dimensions?: string;
+  fileSize?: string;
+  tags?: string[];
+  colors?: string[];
 }
 
 interface WallpaperFormItemProps {
   form: WallpaperForm;
   index: number;
   categories: Category[];
-  devices: { [key: string]: Device | null };
   showRemoveButton: boolean;
   onRemove: () => void;
   onFieldChange: (field: keyof WallpaperForm, value: any) => void;
-  onCategoryChange: (categoryType: 'main' | 'brand', categoryName: string) => void;
+  onCategoryChange: (categoryName: string) => void;
   onRemoveCategory: (category: string) => void;
-  onAddCategoryClick: () => void;
   onDeviceSeriesChange: (brand: string, deviceSeries: string, checked: boolean) => void;
   onIosVersionChange: (version: string) => void;
   getSelectedMainCategory: () => string;
   getSelectedBrandCategory: () => string;
   showCategories?: boolean;
-  onAddMultipleWallpapers?: (urls: string[]) => void;
+  onAddMultipleWallpapers?: (payloads: UploadedWallpaperPayload[]) => void;
+  dimensions?: string;
+  fileSize?: string;
+  tags?: string[];
+  colors?: string[];
   onClearUploads?: (clearFn: () => void) => void;
   totalWallpapers?: number;
   selectedCategory?: string;
@@ -67,41 +76,34 @@ const WallpaperFormItem: React.FC<WallpaperFormItemProps> = ({
   form,
   index,
   categories,
-  devices,
   showRemoveButton,
   onRemove,
   onFieldChange,
   onCategoryChange,
   onRemoveCategory,
-  onAddCategoryClick,
-  onDeviceSeriesChange,
-  onIosVersionChange,
   getSelectedMainCategory,
   getSelectedBrandCategory,
-  showCategories = true,
   onAddMultipleWallpapers,
   onClearUploads,
   totalWallpapers,
   selectedCategory,
   selectedSubcategory,
   onThumbnailLoad,
-  onThumbnailError
+  onThumbnailError,
+  dimensions,
+  fileSize,
+  tags,
+  colors,
 }) => {
   const isMobile = useIsMobile();
-  // Check if a depth effect category is selected
   const hasDepthEffectCategory = form.selectedCategories.includes('Depth Effect');
   
-  // If depth effect category is selected, update the form's depthEffect field
   React.useEffect(() => {
     if (hasDepthEffectCategory !== !!form.depthEffect) {
       onFieldChange('depthEffect', hasDepthEffectCategory);
     }
   }, [hasDepthEffectCategory, form.depthEffect, onFieldChange]);
   
-  // Show launch year when a device series is selected
-  const showLaunchYear = form.selectedDeviceSeries.length > 0;
-  
-  // Handle subcategory change
   const handleSubCategoryChange = (subCategory: string) => {
     onFieldChange('subCategory', subCategory);
   };
@@ -136,6 +138,7 @@ const WallpaperFormItem: React.FC<WallpaperFormItemProps> = ({
             source={form.source}
             exclusive={form.exclusive}
             addAsBanner={form.addAsBanner}
+            bannerPlatforms={form.bannerPlatforms}
             bannerApps={form.bannerApps}
             selectedBrandApp={form.selectedBrandApp}
             customBrandApp={form.customBrandApp}
@@ -150,7 +153,7 @@ const WallpaperFormItem: React.FC<WallpaperFormItemProps> = ({
             sameWallpaperNameBelow={form.sameWallpaperNameBelow}
             sameLaunchYear={form.sameLaunchYear}
             launchYear={form.launchYear}
-            showLaunchYear={showLaunchYear}
+            showLaunchYear={false}
             onChange={(field, value) => onFieldChange(field as keyof WallpaperForm, value)}
             onAddMultipleWallpapers={onAddMultipleWallpapers}
             onClearUploads={onClearUploads}
@@ -159,9 +162,12 @@ const WallpaperFormItem: React.FC<WallpaperFormItemProps> = ({
             totalWallpapers={totalWallpapers}
             onThumbnailLoad={onThumbnailLoad}
             onThumbnailError={onThumbnailError}
+            dimensions={dimensions}
+            fileSize={fileSize}
+            tags={tags}
+            colors={colors}
           />
           
-          {/* Only show categories and device selectors for the first wallpaper */}
           {index === 0 && (
             <div className="space-y-6">
               <CategorySelector
@@ -169,41 +175,26 @@ const WallpaperFormItem: React.FC<WallpaperFormItemProps> = ({
                 selectedCategories={form.selectedCategories}
                 onCategoryChange={onCategoryChange}
                 onRemoveCategory={onRemoveCategory}
-                onAddCategoryClick={onAddCategoryClick}
                 getSelectedMainCategory={getSelectedMainCategory}
                 getSelectedBrandCategory={getSelectedBrandCategory}
                 onSubCategoryChange={handleSubCategoryChange}
                 selectedSubCategory={form.subCategory}
               />
-              
-              {form.selectedCategories
-                .filter(cat => categories.find(c => c.categoryName === cat && c.categoryType === 'brand'))
-                .map(brandCategory => (
-                  <DeviceSelector
-                    key={`${brandCategory}-devices`}
-                    brandCategory={brandCategory}
-                    devices={devices}
-                    selectedDeviceSeries={form.selectedDeviceSeries}
-                    selectedIosVersion={form.selectedIosVersion}
-                    appleSelectionType={form.appleSelectionType}
-                    onDeviceSeriesChange={onDeviceSeriesChange}
-                    onIosVersionChange={onIosVersionChange}
-                    onAppleSelectionTypeChange={
-                      brandCategory === 'Apple' 
-                        ? (type: 'devices' | 'iosVersions') => onFieldChange('appleSelectionType', type)
-                        : undefined
-                    }
-                    formId={`${index}`}
-                  />
-                ))}
+
+              <div className="rounded-md border bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800 p-4 space-y-3">
+                <p className="text-sm font-medium text-amber-900 dark:text-amber-100">Where uploads go</p>
+                <ul className="text-xs text-amber-800 dark:text-amber-200 space-y-1 list-disc pl-4">
+                  <li><strong>Home tab</strong> — saved to the <code className="text-xs">Wallez</code> collection. Trending &amp; Popular filters sort by views and downloads automatically.</li>
+                  <li><strong>Home carousel banner</strong> — enable &quot;Add as Banner&quot;, pick iOS and/or Android; manage under Categories.</li>
+                </ul>
+              </div>
             </div>
           )}
           
-          {/* Message for additional wallpapers explaining they inherit categories from Wallpaper 1 */}
           {index > 0 && (
             <div className="bg-gray-50 dark:bg-slate-800 p-4 rounded-md text-sm text-gray-600 dark:text-gray-300">
               <p className="font-medium mb-2">Using settings from Wallpaper 1</p>
-              <p>Categories and device selections will be automatically applied from Wallpaper 1.</p>
+              <p>Style category and Wallez settings are inherited from the first wallpaper.</p>
             </div>
           )}
         </div>

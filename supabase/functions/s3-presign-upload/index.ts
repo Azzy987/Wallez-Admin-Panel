@@ -237,7 +237,7 @@ serve(async (req) => {
     console.log('Request body:', body)
     
     const {
-      dir = 'wallpapers',
+      dir = 'wallez',
       filename,
       contentType = 'application/octet-stream',
     } = body

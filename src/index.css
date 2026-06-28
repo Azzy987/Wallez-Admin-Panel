@@ -5,77 +5,78 @@
 
 @layer base {
   :root {
-    --background: 210 40% 98%;
-    --foreground: 222.2 84% 4.9%;
+    --background: 220 20% 97%;
+    --foreground: 225 15% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 225 15% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 225 15% 12%;
 
-    --primary: 267 75% 59%;
-    --primary-foreground: 210 40% 98%;
+    --primary: 168 76% 42%;
+    --primary-foreground: 225 20% 8%;
 
-    --secondary: 267 30% 95%;
-    --secondary-foreground: 267 50% 30%;
+    --secondary: 220 16% 93%;
+    --secondary-foreground: 225 15% 20%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 220 14% 94%;
+    --muted-foreground: 220 10% 46%;
 
-    --accent: 267 75% 95%;
-    --accent-foreground: 267 75% 40%;
+    --accent: 168 60% 94%;
+    --accent-foreground: 168 76% 28%;
 
     --destructive: 0 84.2% 60.2%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 267 75% 59%;
+    --border: 220 14% 90%;
+    --input: 220 14% 90%;
+    --ring: 168 76% 42%;
 
-    --radius: 0.5rem;
+    --radius: 0.75rem;
 
-    --sidebar-background: 267 40% 25%;
+    --wallez-teal: 168 76% 54%;
+    --sidebar-background: 225 18% 8%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-muted: 267 30% 20%;
-    --sidebar-muted-foreground: 267 10% 80%;
-    --sidebar-accent: 267 75% 59%;
+    --sidebar-muted: 225 15% 12%;
+    --sidebar-muted-foreground: 220 10% 65%;
+    --sidebar-accent: 168 76% 54%;
   }
 
   .dark {
-    --background: 222.2 45% 7%;
-    --foreground: 210 40% 98%;
+    --background: 225 18% 6%;
+    --foreground: 210 30% 96%;
 
-    --card: 222.2 55% 11%;
-    --card-foreground: 210 40% 98%;
+    --card: 225 16% 10%;
+    --card-foreground: 210 30% 96%;
 
-    --popover: 222.2 45% 7%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 225 18% 8%;
+    --popover-foreground: 210 30% 96%;
 
-    --primary: 267 75% 59%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 168 76% 54%;
+    --primary-foreground: 225 20% 8%;
 
-    --secondary: 267 25% 25%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 225 14% 14%;
+    --secondary-foreground: 210 30% 96%;
 
-    --muted: 267 32.6% 17.5%;
-    --muted-foreground: 267 20% 80%;
+    --muted: 225 12% 14%;
+    --muted-foreground: 220 10% 58%;
 
-    --accent: 267 30% 25%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 225 14% 16%;
+    --accent-foreground: 168 76% 54%;
 
     --destructive: 0 62.8% 50%;
     --destructive-foreground: 210 40% 98%;
 
-    --border: 267 30% 22%;
-    --input: 267 30% 22%;
-    --ring: 267 75% 59%;
+    --border: 225 12% 18%;
+    --input: 225 12% 18%;
+    --ring: 168 76% 54%;
 
-    --sidebar-background: 267 45% 15%;
+    --sidebar-background: 225 20% 5%;
     --sidebar-foreground: 210 40% 98%;
-    --sidebar-muted: 267 30% 12%;
-    --sidebar-muted-foreground: 267 10% 80%;
-    --sidebar-accent: 267 75% 59%;
+    --sidebar-muted: 225 15% 8%;
+    --sidebar-muted-foreground: 220 10% 55%;
+    --sidebar-accent: 168 76% 54%;
   }
 }
 
@@ -85,7 +86,7 @@
   }
 
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground antialiased;
     font-feature-settings: "rlig" 1, "calt" 1;
   }
   
@@ -100,10 +101,37 @@
   }
 }
 
+/* Wallez page ambient base (matches iOS app neutrals) */
+.wallez-page-base {
+  background: linear-gradient(
+    145deg,
+    hsl(var(--background)) 0%,
+    hsl(225 16% 94%) 45%,
+    hsl(var(--background)) 100%
+  );
+}
+
+.dark .wallez-page-base {
+  background: linear-gradient(
+    145deg,
+    hsl(225 20% 5%) 0%,
+    hsl(225 16% 8%) 50%,
+    hsl(225 20% 4%) 100%
+  );
+}
+
+.wallez-glass-panel {
+  @apply border border-border/60 bg-card/70 backdrop-blur-md shadow-sm;
+}
+
+.dark .wallez-glass-panel {
+  @apply bg-card/50 border-white/[0.06];
+}
+
 @keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(10px);
+    transform: translateY(12px);
   }
   to {
     opacity: 1;
@@ -111,32 +139,65 @@
   }
 }
 
+@keyframes staggerIn {
+  from {
+    opacity: 0;
+    transform: translateY(16px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes wallezGlow {
+  0%, 100% {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.85;
+    transform: scale(1.06);
+  }
+}
+
+@keyframes wallezGlowSlow {
+  0%, 100% {
+    opacity: 0.35;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 .animate-fade-in {
-  animation: fadeIn 0.3s ease forwards;
+  animation: fadeIn 0.4s ease forwards;
 }
 
-.glass-card {
-  background: rgba(255, 255, 255, 0.7);
-  backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  box-shadow: 0 8px 32px rgba(31, 38, 135, 0.1);
+.animate-stagger-in {
+  animation: staggerIn 0.55s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  opacity: 0;
 }
 
-.dark .glass-card {
-  background: rgba(30, 30, 40, 0.7);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+.animate-wallez-glow {
+  animation: wallezGlow 8s ease-in-out infinite;
+}
+
+.animate-wallez-glow-slow {
+  animation: wallezGlowSlow 12s ease-in-out infinite;
 }
 
 .sidebar-item {
-  @apply flex items-center gap-3 py-3 px-4 font-medium rounded-md transition-all duration-200 text-white/80 hover:text-white hover:bg-white/10;
+  @apply flex items-center gap-3 py-2.5 px-3 pl-4 font-medium rounded-xl transition-all duration-200;
+  @apply text-sidebar-foreground/65 hover:text-sidebar-foreground hover:bg-white/[0.06];
 }
 
 .sidebar-item.active {
-  @apply bg-primary text-white;
+  @apply bg-white/[0.08] text-sidebar-foreground shadow-sm;
 }
 
 .wallpaper-form-container {
-  @apply bg-card rounded-xl border p-6 shadow-sm;
+  @apply bg-card/80 backdrop-blur-sm rounded-2xl border p-6 shadow-sm;
 }
 
 .wallpaper-form-container:focus-within {
@@ -160,13 +221,20 @@
 }
 
 .checkbox-item label {
-  @apply text-sm text-gray-600 dark:text-gray-300;
+  @apply text-sm text-muted-foreground;
 }
 
 .add-wallpaper-btn {
-  @apply w-full py-3 bg-primary text-white font-medium rounded-md hover:bg-primary/90 transition-colors;
+  @apply w-full py-3 bg-primary text-primary-foreground font-medium rounded-xl hover:opacity-90 transition-all duration-200 hover:scale-[1.01];
 }
 
 .add-category-btn {
   @apply flex items-center justify-center w-8 h-8 bg-primary/10 text-primary rounded-md hover:bg-primary/20 transition-colors;
+}
+
+.scrollbar-thin::-webkit-scrollbar {
+  width: 5px;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  @apply bg-border rounded-full;
 }

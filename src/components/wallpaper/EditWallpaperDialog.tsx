@@ -8,7 +8,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
 import { CalendarIcon, Clock, Check, Trash2, Plus, X, PlusCircle, Eye, Download } from 'lucide-react';
-import { updateWallpaper, deleteWallpaper, getCategories, getDevices, getSubcategories, Category, Device } from '@/lib/firebase';
+import { updateWallpaper, deleteWallpaper, getCategories, getDevices, Category, Device, isStyleCategory } from '@/lib/firebase';
 import { toast } from 'sonner';
 import { format } from 'date-fns';
 import { cn } from '@/lib/utils';
@@ -67,7 +67,6 @@ const EditWallpaperDialog: React.FC<EditWallpaperDialogProps> = ({
   const [minute, setMinute] = useState<string>("00");
   const [second, setSecond] = useState<string>("00");
   const [amPm, setAmPm] = useState<"AM" | "PM">("AM");
-  const [subcategories, setSubcategories] = useState<string[]>([]);
 
   useEffect(() => {
     if (open && wallpaper) {
@@ -116,25 +115,6 @@ const EditWallpaperDialog: React.FC<EditWallpaperDialogProps> = ({
       }
     }
   }, [open, wallpaper, collection]);
-
-  // Fetch subcategories when category changes
-  useEffect(() => {
-    const fetchSubcategories = async () => {
-      if (editedWallpaper.category) {
-        try {
-          const subs = await getSubcategories(editedWallpaper.category);
-          setSubcategories(subs);
-        } catch (error) {
-          console.error("Error fetching subcategories:", error);
-          setSubcategories([]);
-        }
-      } else {
-        setSubcategories([]);
-      }
-    };
-    
-    fetchSubcategories();
-  }, [editedWallpaper.category]);
 
   const fetchCategories = async () => {
     try {
@@ -260,7 +240,7 @@ const EditWallpaperDialog: React.FC<EditWallpaperDialogProps> = ({
 
   const hours = Array.from({ length: 12 }, (_, i) => (i + 1).toString().padStart(2, '0'));
   const minutesSeconds = Array.from({ length: 60 }, (_, i) => i.toString().padStart(2, '0'));
-  const mainCategories = categories.filter(cat => cat.categoryType === 'main');
+  const mainCategories = categories.filter(cat => isStyleCategory(cat.categoryName));
   const displayImageUrl = wallpaper.thumbnailUrl || wallpaper.imageUrl;
 
   const shouldRenderField = (fieldName: string): boolean => {
@@ -488,29 +468,6 @@ const EditWallpaperDialog: React.FC<EditWallpaperDialogProps> = ({
                         ))}
                       </div>
                     </div>
-                    
-                    {subcategories.length > 0 && editedWallpaper.category && (
-                      <div>
-                        <Label className="font-medium mb-2 block">Sub-Category</Label>
-                        <div className="flex flex-wrap gap-2 w-full">
-                          <div 
-                            className={`px-3 py-2 rounded-md border cursor-pointer transition-colors ${!editedWallpaper.subCategory || editedWallpaper.subCategory === "None" ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-                            onClick={() => handleChange('subCategory', "None")}
-                          >
-                            None
-                          </div>
-                          {subcategories.map(subCategory => (
-                            <div 
-                              key={subCategory} 
-                              className={`px-3 py-2 rounded-md border cursor-pointer transition-colors ${editedWallpaper.subCategory === subCategory ? 'bg-primary text-primary-foreground' : 'hover:bg-accent'}`}
-                              onClick={() => handleChange('subCategory', subCategory)}
-                            >
-                              {subCategory}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
                   </CardContent>
                 </Card>
               )}

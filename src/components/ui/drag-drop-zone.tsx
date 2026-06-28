@@ -2,9 +2,14 @@ import React, { useState, useCallback, useRef, useEffect } from 'react';
 import { Upload, X, Image, FileImage } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { formatUploadSize } from '@/lib/imageMetadata';
 
 interface DragDropZoneProps {
   onFilesSelected: (files: File[]) => void;
+  /** When provided, the parent owns the file list (preview stays in sync after upload/clear). */
+  selectedFiles?: File[];
+  onClearSelection?: () => void;
+  onRemoveFile?: (index: number) => void;
   accept?: string;
   multiple?: boolean;
   maxFiles?: number;
@@ -15,6 +20,9 @@ interface DragDropZoneProps {
 
 export const DragDropZone: React.FC<DragDropZoneProps> = ({
   onFilesSelected,
+  selectedFiles: controlledFiles,
+  onClearSelection,
+  onRemoveFile,
   accept = 'image/*',
   multiple = true,
   maxFiles = 100, // Increased limit for batch uploads
@@ -23,7 +31,9 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
   disabled = false
 }) => {
   const [isDragOver, setIsDragOver] = useState(false);
-  const [selectedFiles, setSelectedFiles] = useState<File[]>([]);
+  const [internalSelectedFiles, setInternalSelectedFiles] = useState<File[]>([]);
+  const isControlled = controlledFiles !== undefined;
+  const displayFiles = isControlled ? controlledFiles : internalSelectedFiles;
   const fileInputRef = useRef<HTMLInputElement>(null);
   const objectUrlsRef = useRef<Set<string>>(new Set()); // Track object URLs for cleanup
 
@@ -115,8 +125,10 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
         toast.warning(`Removed ${duplicateCount} duplicate files`);
       }
 
-      // Update state
-      setSelectedFiles(prev => [...prev, ...uniqueFiles]);
+      // Update state (skip internal list when parent controls selection)
+      if (!isControlled) {
+        setInternalSelectedFiles(prev => [...prev, ...uniqueFiles]);
+      }
       onFilesSelected(uniqueFiles);
 
       // Dismiss processing indicator
@@ -126,7 +138,7 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
 
       // Show completion message
       if (uniqueFiles.length > 0) {
-        const totalFiles = selectedFiles.length + uniqueFiles.length;
+        const totalFiles = displayFiles.length + uniqueFiles.length;
         if (totalFiles > 80) {
           toast.warning(`⚠️ ${totalFiles} files selected! Large uploads may take longer and use more memory.`);
         } else if (totalFiles > 50) {
@@ -142,7 +154,7 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
       }
       toast.error('Error processing files. Please try again.');
     }
-  }, [multiple, maxFiles, validateFile, onFilesSelected, selectedFiles.length]);
+  }, [multiple, maxFiles, validateFile, onFilesSelected, displayFiles.length, isControlled]);
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -191,7 +203,12 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
   };
 
   const removeFile = useCallback((index: number) => {
-    setSelectedFiles(prev => {
+    if (isControlled) {
+      onRemoveFile?.(index);
+      return;
+    }
+
+    setInternalSelectedFiles(prev => {
       const fileToRemove = prev[index];
       if (fileToRemove) {
         // Clean up object URL for removed file
@@ -209,10 +226,9 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
       }
       return prev.filter((_, i) => i !== index);
     });
-  }, []);
+  }, [isControlled, onRemoveFile]);
 
   const clearAll = useCallback(() => {
-    // Clean up all object URLs
     objectUrlsRef.current.forEach(url => {
       try {
         URL.revokeObjectURL(url);
@@ -221,8 +237,14 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
       }
     });
     objectUrlsRef.current.clear();
-    setSelectedFiles([]);
-  }, []);
+
+    if (isControlled) {
+      onClearSelection?.();
+      return;
+    }
+
+    setInternalSelectedFiles([]);
+  }, [isControlled, onClearSelection]);
   
   // Clean up object URLs when component unmounts
   useEffect(() => {
@@ -238,13 +260,7 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
     };
   }, []);
 
-  const formatFileSize = (bytes: number): string => {
-    if (bytes === 0) return '0 B';
-    const k = 1024;
-    const sizes = ['B', 'KB', 'MB', 'GB'];
-    const i = Math.floor(Math.log(bytes) / Math.log(k));
-    return parseFloat((bytes / Math.pow(k, i)).toFixed(1)) + ' ' + sizes[i];
-  };
+  const formatFileSize = (bytes: number): string => formatUploadSize(bytes);
 
   return (
     <div className={`space-y-4 ${className}`}>
@@ -309,11 +325,11 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
       </div>
 
       {/* Selected Files Preview */}
-      {selectedFiles.length > 0 && (
+      {displayFiles.length > 0 && (
         <div className="space-y-3">
           <div className="flex items-center justify-between">
             <h4 className="text-sm font-medium text-gray-900 dark:text-gray-100">
-              Selected Files ({selectedFiles.length})
+              Selected Files ({displayFiles.length})
             </h4>
             <Button
               type="button"
@@ -327,15 +343,15 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
           </div>
 
           {/* For large file counts, use virtual rendering and eliminate thumbnails to prevent memory issues */}
-          {selectedFiles.length > 20 ? (
+          {displayFiles.length > 20 ? (
             <div className="space-y-2">
               {/* Enhanced list view for large batches - show thumbnails for first 20 */}
               <div className="border rounded-lg bg-gray-50 dark:bg-gray-800">
                 <div className="p-3 text-sm text-gray-600 dark:text-gray-400 border-b">
-                  📊 Large batch mode: {selectedFiles.length} files (thumbnails for first 20)
+                  📊 Large batch mode: {displayFiles.length} files (thumbnails for first 20)
                 </div>
                 <div className="max-h-64 overflow-y-auto">
-                  {selectedFiles.map((file, index) => (
+                  {displayFiles.map((file, index) => (
                     <div key={index} className="flex items-center justify-between px-3 py-2 border-b last:border-b-0 hover:bg-gray-100 dark:hover:bg-gray-700">
                       <div className="flex items-center space-x-3 flex-1 min-w-0">
                         <div className="flex-shrink-0">
@@ -394,7 +410,7 @@ export const DragDropZone: React.FC<DragDropZoneProps> = ({
             </div>
           ) : (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {selectedFiles.map((file, index) => (
+              {displayFiles.map((file, index) => (
                 <div key={index} className="relative group">
                   <div className="flex items-center space-x-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg border">
                     <div className="flex-shrink-0">
